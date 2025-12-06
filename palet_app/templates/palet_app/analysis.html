@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+
+{% block title %}Optimizasyon Özeti - Akıllı Palet Yerleştirme{% endblock %}
+
+{% block content %}
+<div class="py-6">
+    <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Optimizasyon Özeti</h2>
+    
+    <div class="flex justify-center mb-6 gap-4">
+        <a href="{% url 'palet_app:home' %}" class="py-2 px-6 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition-colors flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="12" y1="8" x2="12" y2="16"></line>
+                <line x1="8" y1="12" x2="16" y2="12"></line>
+            </svg>
+            Yeni Veri Yükle
+        </a>
+        <a href="{% url 'palet_app:palet_detail' palet_id=1 %}" class="py-2 px-6 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg shadow transition-colors flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+            </svg>
+            Paletleri Görüntüle
+        </a>
+    </div>
+    
+    <div class="bg-white shadow-lg rounded-xl p-6 mb-8">
+        <h3 class="text-xl font-bold text-gray-800 mb-4">Optimizasyon Bilgileri</h3>
+        
+        <div class="flex flex-col md:flex-row md:space-x-8 mb-4">
+            <div class="md:w-1/2 mb-4 md:mb-0">
+                <div class="border border-gray-200 rounded-lg overflow-hidden">
+                    <div class="bg-blue-50 px-4 py-2 border-b border-gray-200">
+                        <h4 class="font-bold text-blue-800">Palet Tipi Dağılımı</h4>
+                    </div>
+                    <div class="p-4">
+                        {% if optimization.pie_chart %}
+                            <img src="{{ optimization.pie_chart.url }}" alt="Palet Tipi Dağılımı" class="max-w-md mx-auto rounded shadow">
+                        {% else %}
+                            <div class="text-center text-gray-600 py-4">Grafik oluşturulamadı</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="md:w-1/2">
+                <div class="border border-gray-200 rounded-lg overflow-hidden">
+                    <div class="bg-blue-50 px-4 py-2 border-b border-gray-200">
+                        <h4 class="font-bold text-blue-800">Doluluk Oranları</h4>
+                    </div>
+                    <div class="p-4">
+                        {% if optimization.bar_chart %}
+                            <img src="{{ optimization.bar_chart.url }}" alt="Doluluk Oranları" class="max-w-md mx-auto rounded shadow">
+                        {% else %}
+                            <div class="text-center text-gray-600 py-4">Grafik oluşturulamadı</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div class="text-center">
+                    <h4 class="text-lg font-bold text-gray-800">Toplam Palet</h4>
+                    <p class="text-3xl font-bold text-blue-600">{{ optimization.toplam_palet }}</p>
+                </div>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div class="text-center">
+                    <h4 class="text-lg font-bold text-gray-800">Single Palet</h4>
+                    <p class="text-3xl font-bold text-blue-600">{{ optimization.single_palet }}</p>
+                    <p class="text-sm text-gray-600">(%{{ single_oran|floatformat:1 }})</p>
+                </div>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div class="text-center">
+                    <h4 class="text-lg font-bold text-gray-800">Mix Palet</h4>
+                    <p class="text-3xl font-bold text-blue-600">{{ optimization.mix_palet }}</p>
+                    <p class="text-sm text-gray-600">(%{{ mix_oran|floatformat:1 }})</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% if yerlesmemis_urunler %}
+    <div class="bg-white shadow-lg rounded-xl p-6">
+        <h3 class="text-xl font-bold text-gray-800 mb-4">Yerleştirilemeyen Ürünler ({{ yerlesmemis_urunler|length }})</h3>
+        
+        <div class="overflow-x-auto">
+            <table class="w-full border-collapse">
+                <thead>
+                    <tr class="bg-gray-100">
+                        <th class="text-left p-2 border">Ürün Kodu</th>
+                        <th class="text-left p-2 border">Ürün Adı</th>
+                        <th class="text-left p-2 border">Boyutlar</th>
+                        <th class="text-left p-2 border">Ağırlık</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for urun in yerlesmemis_urunler %}
+                    <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                        <td class="p-2 border">{{ urun.urun_kodu }}</td>
+                        <td class="p-2 border">{{ urun.urun_adi }}</td>
+                        <td class="p-2 border">{{ urun.boy }}x{{ urun.en }}x{{ urun.yukseklik }} cm</td>
+                        <td class="p-2 border">{{ urun.agirlik }} kg</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %} 

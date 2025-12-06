@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+
+{% block title %}Palet {{ palet.palet_id }} - Akıllı Palet Yerleştirme{% endblock %}
+
+{% block content %}
+<div class="py-6">
+    <div class="mb-4 flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-gray-800">
+            Palet {{ palet.palet_id }} - {{ palet.get_palet_turu_display }}
+        </h2>
+        
+        <div class="text-sm text-gray-600">
+           
+            <span class="inline-block px-3 py-1 rounded-full {% if palet.doluluk_orani > 85 %}bg-green-100 text-green-800{% elif palet.doluluk_orani > 75 %}bg-yellow-100 text-yellow-800{% else %}bg-red-100 text-red-800{% endif %}">
+                Doluluk: {{ palet.doluluk_orani|floatformat:1 }}%
+            </span>
+            <span class="inline-block px-3 py-1 rounded-full bg-gray-100 text-gray-800">
+                Ağırlık: {{ palet.toplam_agirlik|floatformat:1 }} kg
+            </span>
+        </div>
+    </div>
+    
+    <div class="bg-white shadow-lg rounded-xl p-6 mb-8">
+        <div class="flex flex-col md:flex-row md:space-x-6">
+            <!-- Palet Görseli -->
+            <div class="md:w-1/2 mb-6 md:mb-0">
+                {% if palet.gorsel %}
+                    <div class="border rounded-lg p-2 bg-gray-50">
+                        <img src="{{ palet.gorsel.url }}" alt="Palet {{ palet.palet_id }}" class="w-full rounded shadow-lg">
+                    </div>
+                {% else %}
+                    <div class="border rounded-lg p-10 bg-gray-50 text-center text-gray-600">
+                        <i class="fas fa-image text-5xl mb-4 text-gray-400"></i>
+                        <p>Görsel mevcut değil</p>
+                    </div>
+                {% endif %}
+            </div>
+            
+            <!-- Ürün Listesi -->
+            <div class="md:w-1/2">
+                <h3 class="text-lg font-bold text-gray-800 mb-4">Yerleştirilen Ürünler ({{ urun_detaylari|length }})</h3>
+                
+                <div class="overflow-y-auto max-h-96 border rounded">
+                    <table class="w-full border-collapse text-sm">
+                        <thead>
+                            <tr class="bg-gray-100">
+                                <th class="text-left p-2 border">#</th>
+                                <th class="text-left p-2 border">Ürün</th>
+                                <th class="text-left p-2 border">Boyut</th>
+                                <th class="text-left p-2 border">Konum</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for detay in urun_detaylari %}
+                            <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                <td class="p-2 border">{{ forloop.counter }}</td>
+                                <td class="p-2 border">
+                                    <div class="font-medium">{{ detay.urun.urun_adi }}</div>
+                                    <div class="text-xs text-gray-600 flex items-center gap-2">
+                                        <span>{{ detay.urun.urun_kodu }}</span>
+                                        {% if detay.renk_rgb %}
+                                            <span class="inline-block w-4 h-4 rounded border border-gray-300" 
+                                                  style="background-color: rgb({{ detay.renk_rgb.0 }}, {{ detay.renk_rgb.1 }}, {{ detay.renk_rgb.2 }});"></span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="p-2 border">
+                                    {{ detay.boyut.0 }}x{{ detay.boyut.1 }}x{{ detay.boyut.2 }} cm
+                                </td>
+                                <td class="p-2 border">
+                                    ({{ detay.konum.0 }}, {{ detay.konum.1 }}, {{ detay.konum.2 }})
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="flex flex-wrap justify-between mt-6 gap-3">
+        <div class="flex space-x-3">
+            {% if prev_id %}
+                <a href="{% url 'palet_app:palet_detail' palet_id=prev_id %}" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded px-4 py-2 flex items-center">
+                    <i class="fas fa-arrow-left mr-2"></i> Önceki Palet
+                </a>
+            {% endif %}
+            
+            {% if next_id %}
+                <a href="{% url 'palet_app:palet_detail' palet_id=next_id %}" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded px-4 py-2 flex items-center">
+                    Sonraki Palet <i class="fas fa-arrow-right ml-2"></i>
+                </a>
+            {% endif %}
+        </div>
+        
+        <div class="flex space-x-3">
+            <a href="{% url 'palet_app:analysis' %}" class="bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded px-4 py-2 flex items-center">
+                <i class="fas fa-th-large mr-2"></i> Özete Dön
+            </a>
+            
+            <a href="{% url 'palet_app:home' %}" class="bg-green-600 hover:bg-green-700 text-white font-semibold rounded px-4 py-2 flex items-center">
+                <i class="fas fa-upload mr-2"></i> Yeni Veri Yükle
+            </a>
+        </div>
+    </div>
+    
+    <div class="text-center text-sm text-gray-600 mt-4">
+        {{ palet.palet_id }} / {{ total_palets }} Palet
+    </div>
+</div>
+{% endblock %} 
