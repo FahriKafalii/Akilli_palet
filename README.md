@@ -13,15 +13,33 @@ Bu proje, Python ile Django framework'ü kullanarak geliştirilmiş, 3D bin pack
 
 ## Kurulum
 
-```bash
+### Windows (PowerShell)
+
+```powershell
+# Sanal ortamı aktifleştir (Python 3.11.9)
+.\venv_win\Scripts\Activate.ps1
+
 # Gerekli bağımlılıkları yükle
 pip install -r requirements.txt
 
 # Veritabanını oluştur
 python manage.py migrate
 
-#Enviroment Aktif et python surumu 3.11.9
-source env/Scripts/activate
+# Sunucuyu başlat
+python manage.py runserver
+```
+
+### Linux / macOS
+
+```bash
+# Sanal ortamı aktifleştir (Python 3.11.9)
+source env/bin/activate
+
+# Gerekli bağımlılıkları yükle
+pip install -r requirements.txt
+
+# Veritabanını oluştur
+python manage.py migrate
 
 # Sunucuyu başlat
 python manage.py runserver

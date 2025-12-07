@@ -1,6 +1,10 @@
 import math
-from collections import Counter, defaultdict
+from collections import Counter
 
+
+# -------------------------------------------------------------------
+# 1) PALET PARAMETRELERİ
+# -------------------------------------------------------------------
 
 class PaletConfig:
     """
@@ -19,12 +23,20 @@ class PaletConfig:
         return self.length * self.width * self.height
 
 
+# -------------------------------------------------------------------
+# 2) GÜVENLİ ATTRIBUTE OKUMA
+# -------------------------------------------------------------------
+
 def _get_attr(obj, name, default=None):
     """Hem dict hem obje için güvenli attribute okuma."""
     if isinstance(obj, dict):
         return obj.get(name, default)
     return getattr(obj, name, default)
 
+
+# -------------------------------------------------------------------
+# 3) ÜRÜN TEMEL ÖZELLİKLERİ
+# -------------------------------------------------------------------
 
 def urun_hacmi(urun) -> float:
     boy = _get_attr(urun, "boy", 0.0)
@@ -37,15 +49,10 @@ def urun_agirlik(urun) -> float:
     return float(_get_attr(urun, "agirlik", 0.0))
 
 
-def urun_mukavemet(urun) -> float:
-    return float(_get_attr(urun, "mukavemet", 0.0))
-
-
 def urun_kodu(urun):
     kod = _get_attr(urun, "urun_kodu", None)
     if kod is not None:
         return kod
-    # fallback: id veya repr
     return _get_attr(urun, "id", repr(urun))
 
 
@@ -53,17 +60,18 @@ def donus_serbest_mi(urun) -> bool:
     return bool(_get_attr(urun, "donus_serbest", True))
 
 
+# -------------------------------------------------------------------
+# 4) ROTASYON OLUŞTURMA
+# -------------------------------------------------------------------
+
 def possible_orientations_for(urun):
     """
-    Ürün için olası rotasyon boyutları.
-    Gerçek projede Urun.possible_orientations() varsa onu kullanabiliriz.
-    Burada basit 6 permütasyon mantığı kullanılıyor.
+    Ürün için olası 6 eksenli rotasyon.
     """
     boy = float(_get_attr(urun, "boy", 0.0))
     en = float(_get_attr(urun, "en", 0.0))
     yuk = float(_get_attr(urun, "yukseklik", 0.0))
 
-    # Eğer modelde possible_orientations fonksiyonu varsa onu kullan
     fn = getattr(urun, "possible_orientations", None)
     if callable(fn):
         return list(fn())
@@ -83,9 +91,7 @@ def possible_orientations_for(urun):
 
 def theoretical_best_rot_index(urun, palet_cfg: PaletConfig) -> int:
     """
-    'İyi rotasyon' için basit bir kriter:
-    - Palet yüksekliğine sığan,
-    - ve en düşük yükseklik veren rotasyonu seçiyoruz.
+    'En iyi rotasyon' = palete sığan + en düşük yükseklik veren rotasyon.
     """
     best_idx = 0
     best_height = math.inf
@@ -99,42 +105,39 @@ def theoretical_best_rot_index(urun, palet_cfg: PaletConfig) -> int:
     return best_idx
 
 
+# -------------------------------------------------------------------
+# 5) HESAPLAMALAR: HACİM – PUAN – CLUSTER
+# -------------------------------------------------------------------
+
 def min_palet_sayisi_tez(urunler, palet_cfg: PaletConfig) -> int:
     """
     Hacme göre teorik minimum palet sayısı.
     """
     toplam_hacim = sum(urun_hacmi(u) for u in urunler)
-    if palet_cfg.volume <= 0:
-        return 1
     return max(1, math.ceil(toplam_hacim / palet_cfg.volume))
 
 
 def cluster_purity(palet_urunleri) -> float:
     """
-    Bir paletteki ürün tiplerinin 'aynı ürün oranı' (purity).
-    Adet bazlı hesaplıyoruz.
+    Bir paletteki ürün tiplerinin 'aynı ürün oranı'.
     """
     if not palet_urunleri:
         return 0.0
+
     counts = Counter(urun_kodu(u) for u in palet_urunleri)
     en_cok = max(counts.values())
     toplam = sum(counts.values())
     return en_cok / toplam
 
 
+# -------------------------------------------------------------------
+# 6) BASİT PACKING (GA TEST AMAÇLI)
+# -------------------------------------------------------------------
+
 def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
     """
-    Çok basitleştirilmiş bir paketleme:
-    - Paletleri sadece hacim + ağırlık sınırına göre doldurur.
-    - 3D koordinat hesabı yok, amaç GA tasarımını test etmek.
-    Dönen:
-        pallets: [
-          {
-            "urunler": [urun, ...],
-            "volume": float,
-            "weight": float,
-          }, ...
-        ]
+    Hacim + ağırlık bazlı YALIN paketleme.
+    GA motorunu test etmek için yeterli.
     """
     urunler = chromosome.urunler
     pallets = []
@@ -148,7 +151,7 @@ def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
         v = urun_hacmi(urun)
         w = urun_agirlik(urun)
 
-        # Yeni ürün mevcut palete sığmazsa yeni palet aç
+        # mevcut palet dolarsa yenisini aç
         if (
             current_items
             and (
@@ -156,13 +159,12 @@ def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
                 or current_weight + w > palet_cfg.max_weight
             )
         ):
-            pallets.append(
-                {
-                    "urunler": current_items,
-                    "volume": current_volume,
-                    "weight": current_weight,
-                }
-            )
+            pallets.append({
+                "urunler": current_items,
+                "volume": current_volume,
+                "weight": current_weight,
+            })
+
             current_items = []
             current_volume = 0.0
             current_weight = 0.0
@@ -171,34 +173,64 @@ def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
         current_volume += v
         current_weight += w
 
-    # son paleti ekle
+    # son palet
     if current_items:
-        pallets.append(
-            {
-                "urunler": current_items,
-                "volume": current_volume,
-                "weight": current_weight,
-            }
-        )
+        pallets.append({
+            "urunler": current_items,
+            "volume": current_volume,
+            "weight": current_weight,
+        })
 
-    # Doluluk oranlarını ekle
+    # Doluluk hesapla
     for p in pallets:
-        p["fill_ratio"] = p["volume"] / palet_cfg.volume if palet_cfg.volume > 0 else 0.0
+        p["fill_ratio"] = p["volume"] / palet_cfg.volume
 
     return pallets
 
 
+# -------------------------------------------------------------------
+# 7) DUMMY CEZA HESAPLARI (Illerde 3D ile değişecek)
+# -------------------------------------------------------------------
+
 def agirlik_merkezi_kaymasi_dummy(palet) -> float:
-    """
-    Şu an 3D koordinat olmadığından ağırlık merkezi hesabı yapmıyoruz.
-    Burası gelecekte geliştirilebilir; şimdilik 0 döndürür.
-    """
+    """3D olmadığı için şu an 0 döner."""
     return 0.0
 
 
 def stacking_ihlali_sayisi_dummy(palet) -> int:
-    """
-    Gerçek stacking (ağır ürün alta) hesabı için 3D bilgi gerekir.
-    Şimdilik 0 döner; yapı hazır tutuluyor.
-    """
+    """Stacking (ağır ürün üste) 3D yerleşim yok → 0 döner."""
     return 0
+
+
+# -------------------------------------------------------------------
+# 8) JSON → ÜRÜN DÖNÜŞTÜRÜCÜ (ŞİRKET VERİSİ İÇİN)
+# -------------------------------------------------------------------
+
+def convert_json_packages_to_products(json_data, UrunClass):
+    """
+    JSON içindeki paket (kutu) bilgilerini GA'nın ürün formatına dönüştürür.
+    quantity artık kullanılmıyor!
+    GA sadece package_quantity kadar kutu yerleştirecek.
+    """
+    urunler = []
+
+    for item in json_data.get("details", []):
+        p = item["product"]
+
+        adet = int(item.get("package_quantity", 1))
+
+        for _ in range(adet):
+            urun = UrunClass(
+                urun_kodu=str(p["code"]),
+                boy=float(p["package_length"]),
+                en=float(p["package_width"]),
+                yukseklik=float(p["package_height"]),
+                agirlik=float(p["package_weight"]),
+                mukavemet=1000.0,
+                donus_serbest=True,
+                istiflenebilir=True,
+            )
+            urunler.append(urun)
+
+    return urunler
+
