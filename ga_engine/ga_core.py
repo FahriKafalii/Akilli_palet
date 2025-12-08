@@ -84,10 +84,13 @@ def run_ga(
     elitism: int = 2,
 ):
     """
-    Mix paletler için GA çalıştırır.
-    Dönen:
-        best_chromosome, history listesi
+    GA motoru:
+      - Giriş: MIX havuzundaki ürünler
+      - Çıkış: En iyi kromozom + history
     """
+    if not urunler:
+        return None, []
+
     # Başlangıç popülasyonu
     population: List[Chromosome] = [
         Chromosome(urunler=urunler) for _ in range(population_size)

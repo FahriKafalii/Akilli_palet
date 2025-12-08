@@ -1,10 +1,10 @@
 import math
 from collections import Counter
 
-
 # -------------------------------------------------------------------
 # 1) PALET PARAMETRELERİ
 # -------------------------------------------------------------------
+
 
 class PaletConfig:
     """
@@ -27,6 +27,7 @@ class PaletConfig:
 # 2) GÜVENLİ ATTRIBUTE OKUMA
 # -------------------------------------------------------------------
 
+
 def _get_attr(obj, name, default=None):
     """Hem dict hem obje için güvenli attribute okuma."""
     if isinstance(obj, dict):
@@ -37,6 +38,7 @@ def _get_attr(obj, name, default=None):
 # -------------------------------------------------------------------
 # 3) ÜRÜN TEMEL ÖZELLİKLERİ
 # -------------------------------------------------------------------
+
 
 def urun_hacmi(urun) -> float:
     boy = _get_attr(urun, "boy", 0.0)
@@ -63,6 +65,7 @@ def donus_serbest_mi(urun) -> bool:
 # -------------------------------------------------------------------
 # 4) ROTASYON OLUŞTURMA
 # -------------------------------------------------------------------
+
 
 def possible_orientations_for(urun):
     """
@@ -106,14 +109,17 @@ def theoretical_best_rot_index(urun, palet_cfg: PaletConfig) -> int:
 
 
 # -------------------------------------------------------------------
-# 5) HESAPLAMALAR: HACİM – PUAN – CLUSTER
+# 5) HESAPLAMALAR: HACİM – MİN PALET – CLUSTER
 # -------------------------------------------------------------------
+
 
 def min_palet_sayisi_tez(urunler, palet_cfg: PaletConfig) -> int:
     """
     Hacme göre teorik minimum palet sayısı.
     """
     toplam_hacim = sum(urun_hacmi(u) for u in urunler)
+    if palet_cfg.volume <= 0:
+        return 1
     return max(1, math.ceil(toplam_hacim / palet_cfg.volume))
 
 
@@ -131,8 +137,9 @@ def cluster_purity(palet_urunleri) -> float:
 
 
 # -------------------------------------------------------------------
-# 6) BASİT PACKING (GA TEST AMAÇLI)
+# 6) BASİT PACKING (GA TEST AMAÇLI MIX PAKETLEME)
 # -------------------------------------------------------------------
+
 
 def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
     """
@@ -159,11 +166,13 @@ def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
                 or current_weight + w > palet_cfg.max_weight
             )
         ):
-            pallets.append({
-                "urunler": current_items,
-                "volume": current_volume,
-                "weight": current_weight,
-            })
+            pallets.append(
+                {
+                    "urunler": current_items,
+                    "volume": current_volume,
+                    "weight": current_weight,
+                }
+            )
 
             current_items = []
             current_volume = 0.0
@@ -175,22 +184,25 @@ def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
 
     # son palet
     if current_items:
-        pallets.append({
-            "urunler": current_items,
-            "volume": current_volume,
-            "weight": current_weight,
-        })
+        pallets.append(
+            {
+                "urunler": current_items,
+                "volume": current_volume,
+                "weight": current_weight,
+            }
+        )
 
     # Doluluk hesapla
     for p in pallets:
-        p["fill_ratio"] = p["volume"] / palet_cfg.volume
+        p["fill_ratio"] = p["volume"] / palet_cfg.volume if palet_cfg.volume > 0 else 0.0
 
     return pallets
 
 
 # -------------------------------------------------------------------
-# 7) DUMMY CEZA HESAPLARI (Illerde 3D ile değişecek)
+# 7) DUMMY CEZA HESAPLARI (ILERDE 3D İLE DEĞİŞECEK)
 # -------------------------------------------------------------------
+
 
 def agirlik_merkezi_kaymasi_dummy(palet) -> float:
     """3D olmadığı için şu an 0 döner."""
@@ -205,6 +217,7 @@ def stacking_ihlali_sayisi_dummy(palet) -> int:
 # -------------------------------------------------------------------
 # 8) JSON → ÜRÜN DÖNÜŞTÜRÜCÜ (ŞİRKET VERİSİ İÇİN)
 # -------------------------------------------------------------------
+
 
 def convert_json_packages_to_products(json_data, UrunClass):
     """
@@ -234,3 +247,87 @@ def convert_json_packages_to_products(json_data, UrunClass):
 
     return urunler
 
+
+# -------------------------------------------------------------------
+# 9) SINGLE-FIRST PIPELINE YARDIMCILARI
+# -------------------------------------------------------------------
+
+
+def group_by_product_code(urunler):
+    """
+    Ürünleri urun_kodu'na göre grupla.
+    Dönüş: dict[str, list[urun]]
+    """
+    gruplar = {}
+    for u in urunler:
+        kod = urun_kodu(u)
+        gruplar.setdefault(kod, []).append(u)
+    return gruplar
+
+
+def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
+    """
+    TEK BİR ürün tipinden tek bir single palete kaç adet ürün sığar?
+
+    Burada hâlâ basit bir yaklaşım kullanıyoruz:
+    - Ürünler aynı tip olduğundan boyut ve ağırlık aynı kabul edilir.
+    - Hacim ve max_weight'e göre teorik kapasite hesaplanır.
+    - Doluluk oranı >= 0.80 ise 'single palet mümkündür' deriz.
+
+    Dönüş:
+        {
+            "can_be_single": bool,
+            "used": [urun, ...],
+            "remaining": [urun, ...],
+            "fill_ratio": float
+        }
+    """
+    if not urun_listesi:
+        return {
+            "can_be_single": False,
+            "used": [],
+            "remaining": [],
+            "fill_ratio": 0.0,
+        }
+
+    ilk = urun_listesi[0]
+    v = urun_hacmi(ilk)
+    w = urun_agirlik(ilk)
+
+    if v <= 0:
+        return {
+            "can_be_single": False,
+            "used": [],
+            "remaining": urun_listesi,
+            "fill_ratio": 0.0,
+        }
+
+    # Hacim ve ağırlığa göre kapasite
+    max_by_volume = int(palet_cfg.volume // v)
+    if w > 0:
+        max_by_weight = int(palet_cfg.max_weight // w)
+    else:
+        max_by_weight = max_by_volume
+
+    kapasite = max(0, min(max_by_volume, max_by_weight))
+    if kapasite <= 0:
+        return {
+            "can_be_single": False,
+            "used": [],
+            "remaining": urun_listesi,
+            "fill_ratio": 0.0,
+        }
+
+    used_count = min(kapasite, len(urun_listesi))
+    used = urun_listesi[:used_count]
+    remaining = urun_listesi[used_count:]
+
+    fill_ratio = (used_count * v) / palet_cfg.volume if palet_cfg.volume > 0 else 0.0
+    can_be_single = fill_ratio >= 0.80
+
+    return {
+        "can_be_single": can_be_single,
+        "used": used,
+        "remaining": remaining,
+        "fill_ratio": fill_ratio,
+    }
