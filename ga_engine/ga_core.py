@@ -71,7 +71,9 @@ def mutate(chromosome: Chromosome, mutation_rate: float = 0.15):
     # ROTASYON MUTASYONU
     if random.random() < mutation_rate and n > 0:
         k = random.randint(0, n - 1)
-        chromosome.rot_gen[k] = random.randint(0, 5)
+        # Artık sadece 0 veya 1
+        chromosome.rot_gen[k] = random.randint(0, 1)
+
 
 
 def run_ga(

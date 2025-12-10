@@ -3,11 +3,17 @@ ga_engine.main
 
 Bu dosya, GA motorunu şirketten gelen JSON dosyasıyla test etmek için kullanılır.
 
-AŞAMA 5:
-    - Single-first pipeline eklendi.
-    - Önce her ürün tipi için single palet denenir (>= %80 doluluk).
-    - Single paletlere yerleştirilemeyen ürünler MIX havuzuna gider.
-    - GA sadece MIX havuzundaki ürünler için çalışır.
+ŞU ANKİ DURUM (AŞAMA 5–6 arası):
+    - JSON → ürün listesi (package_quantity kadar kutu oluşturuyoruz)
+    - Single-first pipeline:
+        * Her ürün tipi için single palet simülasyonu (>= %80 doluluk)
+        * Single paletlere gidenler ayrılıyor
+        * Geri kalan tüm ürünler MIX havuzuna gidiyor
+    - MIX havuzu için GA çalışıyor (sadece hacim + ağırlık kısıtları)
+    - Sonuçlar:
+        * Single palet özeti
+        * MIX GA sonucu ve palet detayları
+        * Toplam palet sayısı & genel doluluk
 
 Kullanım:
     python -m ga_engine.main
@@ -66,6 +72,8 @@ def main():
     # -------------------------------------------
     # 3) PALET PARAMETRELERİNİ AYARLA
     # -------------------------------------------
+    # Buradaki değerler JSON içindeki container ile uyumlu:
+    # length=120, width=100, height=180, max_weight=1250
     palet_cfg = PaletConfig(length=120, width=100, height=180, max_weight=1250)
 
     print(f"Palet hacmi: {palet_cfg.volume:.2f} cm³")

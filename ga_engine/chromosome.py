@@ -6,7 +6,8 @@ class Chromosome:
     GA bireyini temsil eder.
 
     - sira_gen : ürünlerin yerleştirilme sırası (permutasyon)
-    - rot_gen  : her ürün için seçilen rotasyon index'i (0–5)
+    - rot_gen  : her ürün için seçilen rotasyon index'i
+                 (0 veya 1 → X-Y düzleminde iki olası yön)
     """
 
     def __init__(self, urunler, sira_gen=None, rot_gen=None):
@@ -20,10 +21,14 @@ class Chromosome:
         else:
             self.sira_gen = list(sira_gen)
 
-        # 2) ROTASYON GENİ (HER ÜRÜN İÇİN 0–5)
+        # 2) ROTASYON GENİ (HER ÜRÜN İÇİN 0–1)
         if rot_gen is None:
-            self.rot_gen = [random.randint(0, 5) for _ in range(self.n)]
+            # 0: (boy, en, yuk)
+            # 1: (en, boy, yuk)
+            self.rot_gen = [random.randint(0, 1) for _ in range(self.n)]
         else:
+            # Dışarıdan gelen listeyi de 0/1'e clamp etmek istersen burayı sıkılaştırabiliriz,
+            # şimdilik olduğu gibi alıyoruz.
             self.rot_gen = list(rot_gen)
 
         # 3) FİTNESS BİLGİLERİ
