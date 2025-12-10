@@ -10,17 +10,21 @@ from .utils import (
     theoretical_best_rot_index,
 )
 
+# AŞAMA 3: GERÇEKÇİ FITNESS AYARLARI
 GA_WEIGHTS = {
-    "w_volume": 1500,
-    "w_cluster": 1200,
-    "w_min_pallet_bonus": 800,
-    "w_min_pallet_penalty_1": 300,
-    "w_min_pallet_penalty_2": 1000,
-    "w_weight_over": 5000,
-    "w_rot_good": 300,
-    "w_rot_bad": 300,
-    "w_cm_offset": 200,
-    "w_stack_violation": 1500,
+    "w_volume": 2000,           # Doluluğu ödüllendir (Artırıldı)
+    "w_cluster": 1500,          # Aynı ürünleri bir arada tutmayı ödüllendir
+    "w_min_pallet_bonus": 1000, # Hedef palet sayısını tutturana bonus
+    "w_min_pallet_penalty_1": 500,  
+    "w_min_pallet_penalty_2": 2000,
+    
+    # ARTIK ÇALIŞAN GERÇEK CEZALAR
+    "w_weight_over": 5000,      # Ağırlık aşımı (Kritik)
+    "w_cm_offset": 500,         # Ağırlık merkezi kayması (Yeni aktif)
+    "w_stack_violation": 2000,  # Ezilme riski (Yeni aktif)
+    
+    "w_rot_good": 100,          # Rotasyon ödülü (Düşürüldü, fiziksel motor zaten eliyor)
+    "w_rot_bad": 100,
 }
 
 @dataclass
@@ -55,12 +59,21 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
         reward += GA_WEIGHTS["w_volume"] * doluluk
         reward += GA_WEIGHTS["w_cluster"] * purity
 
+        # Ağırlık Aşımı
         weight_over = max(0.0, palet["weight"] - palet_cfg.max_weight)
         if weight_over > 0:
             penalties += GA_WEIGHTS["w_weight_over"] * (weight_over / 10.0)
 
-        penalties += GA_WEIGHTS["w_cm_offset"] * agirlik_merkezi_kaymasi_dummy(palet)
-        penalties += GA_WEIGHTS["w_stack_violation"] * stacking_ihlali_sayisi_dummy(palet)
+        # ARTIK ÇALIŞAN FONKSİYONLAR
+        # Ağırlık Merkezi (CoG) Cezası
+        cm_offset = agirlik_merkezi_kaymasi_dummy(palet)
+        if cm_offset > 10.0: # 10 cm'den fazla kayma varsa ceza başlar
+            penalties += GA_WEIGHTS["w_cm_offset"] * (cm_offset / 5.0)
+
+        # Stacking İhlali Cezası
+        stack_viol = stacking_ihlali_sayisi_dummy(palet)
+        if stack_viol > 0:
+            penalties += GA_WEIGHTS["w_stack_violation"] * stack_viol
 
     ort_doluluk = toplam_doluluk / P_GA
 
@@ -71,20 +84,6 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
         penalties += GA_WEIGHTS["w_min_pallet_penalty_1"]
     elif P_GA >= P_min + 2:
         penalties += GA_WEIGHTS["w_min_pallet_penalty_2"]
-
-    # Rotasyon ödül/cezası
-    rot_reward = 0.0
-    for gene_idx, urun_idx in enumerate(chromosome.sira_gen):
-        urun = chromosome.urunler[urun_idx]
-        best_idx = theoretical_best_rot_index(urun, palet_cfg)
-        chosen = chromosome.rot_gen[gene_idx]
-
-        if chosen == best_idx:
-            rot_reward += GA_WEIGHTS["w_rot_good"]
-        else:
-            rot_reward -= GA_WEIGHTS["w_rot_bad"]
-
-    reward += rot_reward
 
     # FINAL FITNESS
     fitness = reward - penalties
