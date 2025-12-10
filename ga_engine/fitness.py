@@ -12,7 +12,7 @@ from .utils import (
 
 # AŞAMA 3: GERÇEKÇİ FITNESS AYARLARI
 GA_WEIGHTS = {
-    "w_volume": 2000,           # Doluluğu ödüllendir (Artırıldı)
+    "w_volume": 2000,           # Doluluğu ödüllendir
     "w_cluster": 1500,          # Aynı ürünleri bir arada tutmayı ödüllendir
     "w_min_pallet_bonus": 1000, # Hedef palet sayısını tutturana bonus
     "w_min_pallet_penalty_1": 500,  
@@ -23,7 +23,7 @@ GA_WEIGHTS = {
     "w_cm_offset": 500,         # Ağırlık merkezi kayması (Yeni aktif)
     "w_stack_violation": 2000,  # Ezilme riski (Yeni aktif)
     
-    "w_rot_good": 100,          # Rotasyon ödülü (Düşürüldü, fiziksel motor zaten eliyor)
+    "w_rot_good": 100,          # Rotasyon ödülü
     "w_rot_bad": 100,
 }
 
@@ -65,8 +65,8 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
             penalties += GA_WEIGHTS["w_weight_over"] * (weight_over / 10.0)
 
         # ARTIK ÇALIŞAN FONKSİYONLAR
-        # Ağırlık Merkezi (CoG) Cezası
-        cm_offset = agirlik_merkezi_kaymasi_dummy(palet,palet_cfg)
+        # Ağırlık Merkezi (CoG) Cezası - DİNAMİK ÇAĞRI
+        cm_offset = agirlik_merkezi_kaymasi_dummy(palet, palet_cfg)
         if cm_offset > 10.0: # 10 cm'den fazla kayma varsa ceza başlar
             penalties += GA_WEIGHTS["w_cm_offset"] * (cm_offset / 5.0)
 

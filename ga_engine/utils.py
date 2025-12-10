@@ -68,13 +68,14 @@ def theoretical_best_rot_index(urun, palet_cfg: PaletConfig) -> int:
 
 
 # -------------------------------------------------------------------
-# 3) FİZİKSEL YERLEŞTİRME MOTORU (SHELF-BASED)
+# 3) FİZİKSEL YERLEŞTİRME MOTORU (SHELF-BASED + SMART FIT)
 # -------------------------------------------------------------------
 
 def pack_shelf_based(urunler, rot_gen, palet_cfg: PaletConfig):
     """
     Raf mantığıyla (X -> Y -> Z) fiziksel yerleşim yapar.
-    Overhang (taşma) ve Overweight (ağırlık) kontrolü vardır.
+    GÜNCELLEME: 'Smart Fit' - Eğer kutu mevcut boşluğa sığmıyorsa
+    döndürüp sığdırmayı dener.
     """
     pallets = []
     
@@ -88,7 +89,7 @@ def pack_shelf_based(urunler, rot_gen, palet_cfg: PaletConfig):
     L, W, H = palet_cfg.length, palet_cfg.width, palet_cfg.height
     
     for idx, urun in enumerate(urunler):
-        # Rotasyon seçimi
+        # 1. Gen'den gelen varsayılan rotasyonu al
         rot_idx = 0
         if rot_gen and idx < len(rot_gen):
             rot_idx = rot_gen[idx]
@@ -96,10 +97,27 @@ def pack_shelf_based(urunler, rot_gen, palet_cfg: PaletConfig):
         dims_list = possible_orientations_for(urun)
         if rot_idx >= len(dims_list): rot_idx = 0
         
+        # Varsayılan boyutlar
         u_len, u_wid, u_hgt = dims_list[rot_idx]
         u_wgt = urun_agirlik(urun)
 
-        # 1. Palet Ağırlık Kontrolü
+        # ---------------------------------------------------------
+        # AKILLI ROTASYON KONTROLÜ (Smart Fit)
+        # ---------------------------------------------------------
+        # Eğer mevcut rafa (X ekseni) sığmıyorsa ama döndürünce sığıyorsa, döndür!
+        
+        remaining_x = L - x
+        # Sığmıyorsa VE Alternatif rotasyon varsa
+        if (u_len > remaining_x) and (len(dims_list) > 1):
+            # Diğer rotasyonu dene (boy ve en yer değiştirir)
+            alt_len, alt_wid, alt_hgt = dims_list[1 - rot_idx] # 0 ise 1, 1 ise 0
+            
+            if alt_len <= remaining_x:
+                # Başarılı! Döndürülmüş hali kullan
+                u_len, u_wid, u_hgt = alt_len, alt_wid, alt_hgt
+        # ---------------------------------------------------------
+
+        # 2. Palet Ağırlık Kontrolü
         if current_weight + u_wgt > palet_cfg.max_weight:
             pallets.append(finalize_pallet(current_items, current_weight, palet_cfg))
             current_items = []
@@ -108,22 +126,25 @@ def pack_shelf_based(urunler, rot_gen, palet_cfg: PaletConfig):
             current_layer_height = 0.0
             shelf_width = 0.0
 
-        # 2. X Kontrol (Raf boyu)
+        # 3. X Kontrol (Raf boyu)
         if x + u_len > L:
+            # Sığmadı, mecburen yeni rafa geç
             x = 0.0
             y += shelf_width
             shelf_width = 0.0 
 
-        # 3. Y Kontrol (Katman eni)
+        # 4. Y Kontrol (Katman eni)
         if y + u_wid > W:
+            # Sığmadı, mecburen üst kata geç
             x = 0.0
             y = 0.0
             z += current_layer_height
             current_layer_height = 0.0
             shelf_width = 0.0
 
-        # 4. Z Kontrol (Palet yüksekliği)
+        # 5. Z Kontrol (Palet yüksekliği)
         if z + u_hgt > H:
+            # Sığmadı, paleti kapat
             pallets.append(finalize_pallet(current_items, current_weight, palet_cfg))
             current_items = []
             current_weight = 0.0
@@ -131,7 +152,7 @@ def pack_shelf_based(urunler, rot_gen, palet_cfg: PaletConfig):
             current_layer_height = 0.0
             shelf_width = 0.0
         
-        # 5. Yerleştir
+        # 6. Yerleştir
         placement_info = {
             "urun": urun,
             "x": x, "y": y, "z": z,
@@ -180,7 +201,7 @@ def calculate_cog(items, total_weight):
 
 
 # -------------------------------------------------------------------
-# 4) ANALİZ VE CEZA FONKSİYONLARI (GERÇEK)
+# 4) ANALİZ VE CEZA FONKSİYONLARI (DİNAMİK)
 # -------------------------------------------------------------------
 
 def check_overlap(r1, r2):
@@ -212,47 +233,34 @@ def stacking_ihlali_sayisi_dummy(palet) -> int:
         upper = sorted_items[i]
         for j in range(i):
             lower = sorted_items[j]
-            # Z olarak hemen altındaysa
             if abs((lower["z"] + lower["H"]) - upper["z"]) < 1.0:
                 if check_overlap(upper, lower):
-                    # Hafifin üstüne ağır gelmiş mi?
                     if upper["weight"] > lower["weight"] * 1.5:
                         violations += 1
     return violations
 
-# GA Core bunu çağırır
 def basit_palet_paketleme(chromosome, palet_cfg: PaletConfig):
     return pack_shelf_based(chromosome.urunler, chromosome.rot_gen, palet_cfg)
 
 
 # -------------------------------------------------------------------
-# 5) SINGLE PALET SİMÜLASYONU (GÜNCELLENDİ - FİZİKSEL)
+# 5) SINGLE PALET SİMÜLASYONU
 # -------------------------------------------------------------------
 
 def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
-    """
-    ARTIK FİZİKSEL MOTOR KULLANIYOR!
-    Eski matematiksel formül yerine 'pack_shelf_based' kullanarak
-    gerçekten sığıp sığmadığını dener.
-    """
     if not urun_listesi:
         return {"can_be_single": False, "used": [], "remaining": [], "fill_ratio": 0.0}
 
-    # 1. Tüm ürünleri (veya yeterince fazlasını) fiziksel motorla paketle
-    # Rotasyon geni hepsine 0 (orijinal) veya hepsine 1 (döndürülmüş) deneyebiliriz.
-    # En iyi sonucu vereni seçelim.
-    
-    # Senaryo A: Hepsi Düz (Rotasyon 0)
+    # Senaryo A: Hepsi Düz
     rot_gen_0 = [0] * len(urun_listesi)
     pallets_0 = pack_shelf_based(urun_listesi, rot_gen_0, palet_cfg)
     p0 = pallets_0[0] if pallets_0 else None
     
-    # Senaryo B: Hepsi Dönük (Rotasyon 1) - Eğer kare değilse fark eder
+    # Senaryo B: Hepsi Dönük
     rot_gen_1 = [1] * len(urun_listesi)
     pallets_1 = pack_shelf_based(urun_listesi, rot_gen_1, palet_cfg)
     p1 = pallets_1[0] if pallets_1 else None
     
-    # Hangisi daha çok ürün aldı?
     best_p = p0
     used_items = p0["urunler"] if p0 else []
     
@@ -266,16 +274,17 @@ def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
     used_count = len(used_items)
     used = urun_listesi[:used_count]
     remaining = urun_listesi[used_count:]
-    
-    # Doluluk Kuralı (>%80 Hacim)
     fill_ratio = best_p["fill_ratio"]
+    
+    # DİNAMİK CoG Hesabı
+    cog_off = agirlik_merkezi_kaymasi_dummy(best_p, palet_cfg)
     
     return {
         "can_be_single": fill_ratio >= 0.80,
         "used": used,
         "remaining": remaining,
         "fill_ratio": fill_ratio,
-        "cog_offset": agirlik_merkezi_kaymasi_dummy(best_p,palet_cfg) # CoG kontrolü de eklendi
+        "cog_offset": cog_off
     }
 
 

@@ -84,7 +84,7 @@ def main():
 
     print(f"Palet Bilgisi: {p_len}x{p_wid}x{p_hgt} cm, Max Ağırlık: {p_wgt} kg")
     print(f"Palet hacmi: {palet_cfg.volume:.2f} cm³")
-    
+
     # -------------------------------------------
     # 4) SINGLE-FIRST PIPELINE
     # -------------------------------------------
