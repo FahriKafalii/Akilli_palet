@@ -70,14 +70,21 @@ def main():
     print(f"Toplam ürün hacmi: {toplam_hacim:.2f} cm³")
 
     # -------------------------------------------
-    # 3) PALET PARAMETRELERİNİ AYARLA
+    # 3) PALET PARAMETRELERİNİ JSON'DAN AL (DİNAMİK)
     # -------------------------------------------
-    # Buradaki değerler JSON içindeki container ile uyumlu:
-    # length=120, width=100, height=180, max_weight=1250
-    palet_cfg = PaletConfig(length=120, width=100, height=180, max_weight=1250)
+    container_info = data.get("container", {})
+    
+    # Eğer JSON'da container bilgisi yoksa varsayılan (120x100x180) kullanılır
+    p_len = float(container_info.get("length", 120))
+    p_wid = float(container_info.get("width", 100))
+    p_hgt = float(container_info.get("height", 180))
+    p_wgt = float(container_info.get("weight", 1250))
 
+    palet_cfg = PaletConfig(length=p_len, width=p_wid, height=p_hgt, max_weight=p_wgt)
+
+    print(f"Palet Bilgisi: {p_len}x{p_wid}x{p_hgt} cm, Max Ağırlık: {p_wgt} kg")
     print(f"Palet hacmi: {palet_cfg.volume:.2f} cm³")
-
+    
     # -------------------------------------------
     # 4) SINGLE-FIRST PIPELINE
     # -------------------------------------------

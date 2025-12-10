@@ -66,7 +66,7 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
 
         # ARTIK ÇALIŞAN FONKSİYONLAR
         # Ağırlık Merkezi (CoG) Cezası
-        cm_offset = agirlik_merkezi_kaymasi_dummy(palet)
+        cm_offset = agirlik_merkezi_kaymasi_dummy(palet,palet_cfg)
         if cm_offset > 10.0: # 10 cm'den fazla kayma varsa ceza başlar
             penalties += GA_WEIGHTS["w_cm_offset"] * (cm_offset / 5.0)
 

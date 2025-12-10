@@ -186,12 +186,21 @@ def calculate_cog(items, total_weight):
 def check_overlap(r1, r2):
     return (max(0, min(r1["x"]+r1["L"], r2["x"]+r2["L"]) - max(r1["x"], r2["x"])) * max(0, min(r1["y"]+r1["W"], r2["y"]+r2["W"]) - max(r1["y"], r2["y"]))) > 0
 
-def agirlik_merkezi_kaymasi_dummy(palet) -> float:
-    # Palet merkezi 60,50 (120x100 varsayımı)
-    tx, ty = 60.0, 50.0
-    cx = palet.get("cog_x", 60.0)
-    cy = palet.get("cog_y", 50.0)
-    return math.sqrt((cx - tx)**2 + (cy - ty)**2)
+def agirlik_merkezi_kaymasi_dummy(palet, palet_cfg: PaletConfig) -> float:
+    """
+    Palet merkezinden ne kadar saptığını hesaplar.
+    DİNAMİK: Palet boyutunu config'den alır.
+    """
+    target_x = palet_cfg.length / 2.0
+    target_y = palet_cfg.width / 2.0
+    
+    cog_x = palet.get("cog_x", target_x)
+    cog_y = palet.get("cog_y", target_y)
+    
+    dx = abs(cog_x - target_x)
+    dy = abs(cog_y - target_y)
+    
+    return math.sqrt(dx**2 + dy**2)
 
 def stacking_ihlali_sayisi_dummy(palet) -> int:
     placements = palet.get("placements", [])
@@ -266,7 +275,7 @@ def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
         "used": used,
         "remaining": remaining,
         "fill_ratio": fill_ratio,
-        "cog_offset": agirlik_merkezi_kaymasi_dummy(best_p) # CoG kontrolü de eklendi
+        "cog_offset": agirlik_merkezi_kaymasi_dummy(best_p,palet_cfg) # CoG kontrolü de eklendi
     }
 
 
