@@ -284,7 +284,8 @@ def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
         "used": used,
         "remaining": remaining,
         "fill_ratio": fill_ratio,
-        "cog_offset": cog_off
+        "cog_offset": cog_off,
+        "placements": best_p["placements"]
     }
 
 

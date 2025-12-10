@@ -122,6 +122,7 @@ def main():
                         "fill_ratio": fill,
                         "urun_kodu": kod,
                         "single": True,
+                        "placements": sim["placements"],
                     }
                 )
                 kalan = remaining
@@ -240,7 +241,63 @@ def main():
                 f"palet={h['palet_sayisi']} | "
                 f"doluluk={h['ortalama_doluluk']:.3f}"
             )
+    # -------------------------------------------
+    # 11) SONUÇLARI JSON OLARAK KAYDET (GÖRSELLEŞTİRME İÇİN)
+    # -------------------------------------------
+    print("\nSonuçlar 'sonuc.json' dosyasına kaydediliyor...")
+    
+    output_data = {
+        "summary": {
+            "total_products": len(tum_urunler),
+            "total_pallets": toplam_palet_sayisi,
+            "avg_occupancy": genel_ortalama_doluluk,
+            "pallet_dimensions": {
+                "length": palet_cfg.length,
+                "width": palet_cfg.width,
+                "height": palet_cfg.height
+            }
+        },
+        "pallets": []
+    }
 
+    # Helper: Palet verisini JSON formatına çevir
+    def serialize_pallet(p_data, p_type, p_id):
+        items = []
+        for plc in p_data.get("placements", []): 
+            items.append({
+                "code": plc["urun"].urun_kodu,
+                "x": plc["x"],
+                "y": plc["y"],
+                "z": plc["z"],
+                "L": plc["L"],
+                "W": plc["W"],
+                "H": plc["H"],
+                "weight": plc["weight"]
+            })
+        
+        return {
+            "pallet_id": p_id,
+            "type": p_type,
+            "fill_ratio": p_data["fill_ratio"],
+            "weight": p_data["weight"],
+            "items": items
+        }
+
+    # Single Paletleri Ekle
+    for i, p in enumerate(single_pallets, 1):
+        output_data["pallets"].append(serialize_pallet(p, "SINGLE", f"S-{i}"))
+
+    # Mix Paletleri Ekle
+    for i, p in enumerate(mix_pallets, 1):
+        output_data["pallets"].append(serialize_pallet(p, "MIX", f"M-{i}"))
+
+    # Dosyaya Yaz (ANA KLASÖRE KAYDET)
+    # resolve().parent.parent -> ga_engine klasörünün bir üstüne (Akilli_palet) çıkar
+    output_path = Path(__file__).resolve().parent.parent / "sonuc.json"
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(output_data, f, indent=2)
+    
+    print(f"✅ Kayıt başarılı: {output_path}")
 
 if __name__ == "__main__":
     main()
