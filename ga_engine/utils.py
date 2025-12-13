@@ -280,7 +280,7 @@ def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
     cog_off = agirlik_merkezi_kaymasi_dummy(best_p, palet_cfg)
     
     return {
-        "can_be_single": fill_ratio >= 0.80,
+        "can_be_single": fill_ratio >= 0.90,
         "used": used,
         "remaining": remaining,
         "fill_ratio": fill_ratio,
@@ -305,21 +305,63 @@ def cluster_purity(palet_urunleri) -> float:
 
 def convert_json_packages_to_products(json_data, UrunClass):
     urunler = []
+    
+    # JSON içindeki "details" listesini dönüyoruz
     for item in json_data.get("details", []):
         p = item["product"]
-        adet = int(item.get("package_quantity", 1))
+        
+        # package_quantity değerini al (Varsa paket sayısı, yoksa None)
+        pkg_qty = item.get("package_quantity")
+        
+        # --- SENARYO A: KOLİ MANTIK (package_quantity Doluysa) ---
+        # Örn: package_quantity = 25 ise -> 25 tane Koli oluştur.
+        if pkg_qty is not None and int(pkg_qty) > 0:
+            adet = int(pkg_qty)  # Düzeltme: Burada yazan sayı kadar koli var.
+            
+            # Boyutlar: PACKAGE (Koli) boyutlarını alıyoruz
+            # Eğer JSON'da koli boyutları yoksa (0 gelirse), unit boyutlarına bakmayalım,
+            # lojistikte koli boyutu kritik. 
+            boy = float(p.get("package_length") or 0)
+            en  = float(p.get("package_width") or 0)
+            yuk = float(p.get("package_height") or 0)
+            agr = float(p.get("package_weight") or 0)
+            
+            # (İsteğe bağlı log) 
+            # print(f"Koli Modu: {p['code']} ürününden {adet} adet koli eklendi.")
+
+        # --- SENARYO B: TEKİL ÜRÜN MANTIK (package_quantity Null ise) ---
+        # Örn: quantity = 160 ise -> 160 tane Tekil Ürün oluştur.
+        else:
+            # Adet: Normal "quantity" değerini al
+            adet = int(float(item.get("quantity", 1)))
+            
+            # Boyutlar: UNIT (Birim/Küçük) boyutlarını alıyoruz
+            boy = float(p.get("unit_length") or 0)
+            en  = float(p.get("unit_width") or 0)
+            yuk = float(p.get("unit_height") or 0)
+            agr = float(p.get("unit_weight") or 0)
+
+            # (İsteğe bağlı log)
+            # print(f"Tekil Mod: {p['code']} ürününden {adet} adet tekil ürün eklendi.")
+
+        # Mukavemet (Varsa al yoksa 1000 kg varsay)
+        max_stack = p.get("package_max_stack_weight")
+        mukavemet = float(max_stack) if max_stack is not None else 1000.0
+
+        # Belirlenen adet kadar ürünü listeye ekle
         for _ in range(adet):
             urun = UrunClass(
                 urun_kodu=str(p["code"]),
-                boy=float(p["package_length"]),
-                en=float(p["package_width"]),
-                yukseklik=float(p["package_height"]),
-                agirlik=float(p["package_weight"]),
-                mukavemet=1000.0,
+                boy=boy,
+                en=en,
+                yukseklik=yuk,
+                agirlik=agr,
+                mukavemet=mukavemet,
                 donus_serbest=True,
                 istiflenebilir=True,
             )
             urunler.append(urun)
+            
     return urunler
 
 def group_by_product_code(urunler):

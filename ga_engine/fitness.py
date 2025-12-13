@@ -12,18 +12,23 @@ from .utils import (
 
 # AŞAMA 3: GERÇEKÇİ FITNESS AYARLARI
 GA_WEIGHTS = {
-    "w_volume": 2000,           # Doluluğu ödüllendir
-    "w_cluster": 1500,          # Aynı ürünleri bir arada tutmayı ödüllendir
-    "w_min_pallet_bonus": 1000, # Hedef palet sayısını tutturana bonus
-    "w_min_pallet_penalty_1": 500,  
-    "w_min_pallet_penalty_2": 2000,
-    
-    # ARTIK ÇALIŞAN GERÇEK CEZALAR
-    "w_weight_over": 5000,      # Ağırlık aşımı (Kritik)
-    "w_cm_offset": 500,         # Ağırlık merkezi kayması (Yeni aktif)
-    "w_stack_violation": 2000,  # Ezilme riski (Yeni aktif)
-    
-    "w_rot_good": 100,          # Rotasyon ödülü
+    # HACİM: Artık çok yüksek ama formülde karesini alacağız (Exponential)
+    "w_volume": 10000,
+
+    # CLUSTER: İPTAL (Karışık olsun, yeter ki dolsun)
+    "w_cluster": 0,
+
+    # HEDEF BONUSU: İyi yapana ödül
+    "w_min_pallet_bonus": 2000,
+    "w_min_pallet_penalty_1": 1000,
+    "w_min_pallet_penalty_2": 5000,
+
+    # FİZİKSEL İHLALLER: İDAM (Asla affetme)
+    "w_weight_over": 1000000,      # 1 milyon ceza (Direkt ele)
+    "w_cm_offset": 5000,           # Denge önemli
+    "w_stack_violation": 1000000,  # Ezilme varsa direkt ele
+
+    "w_rot_good": 100,
     "w_rot_bad": 100,
 }
 
@@ -56,7 +61,7 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
         toplam_doluluk += doluluk
 
         purity = cluster_purity(palet["urunler"])
-        reward += GA_WEIGHTS["w_volume"] * doluluk
+        reward += GA_WEIGHTS["w_volume"] * (doluluk ** 2)
         reward += GA_WEIGHTS["w_cluster"] * purity
 
         # Ağırlık Aşımı

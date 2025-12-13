@@ -46,13 +46,26 @@ class DummyUrun:
     mukavemet: float = 1000.0
     donus_serbest: bool = True
     istiflenebilir: bool = True
+def calculate_dynamic_params(product_count: int):
+    """
+    Ürün sayısına göre GA parametrelerini otomatik hesaplar.
+    Taban: 30 popülasyon, 50 nesil.
+    Artış: Her 150 üründe +1 popülasyon, her 40 üründe +1 nesil.
+    """
+    pop_size = 30 + (product_count // 150)
+    if pop_size > 100: pop_size = 100  # Tavan limit
 
+    generations = 50 + (product_count // 40)
+    if generations > 300: generations = 300  # Tavan limit
+
+    print(f"🧮 Dinamik Parametreler: {product_count} ürün -> Pop: {pop_size}, Gen: {generations}")
+    return pop_size, generations
 
 def main():
     # -----------------------------
     # 1) JSON DOSYASINI YÜKLE
     # -----------------------------
-    json_path = Path(__file__).resolve().parent.parent / "test_data" / "0114.json"
+    json_path = Path(__file__).resolve().parent.parent / "test_data" / "0552.json"
 
     print(f"JSON yükleniyor: {json_path}")
 
@@ -145,16 +158,19 @@ def main():
     best = None
     history = []
 
-    if mix_pool:
+    if mix_pool:  
         print("\nGA (MIX havuzu için) çalışıyor...\n")
+
+        # Dinamik Hesaplama
+        d_pop, d_gen = calculate_dynamic_params(len(mix_pool))
 
         best, history = run_ga(
             urunler=mix_pool,
             palet_cfg=palet_cfg,
-            population_size=50,
-            generations=120,
+            population_size=d_pop,
+            generations=d_gen,
         )
-    else:
+    else:        
         print("\nMIX havuzunda ürün yok, GA çalıştırılmayacak.\n")
 
     # -------------------------------------------
