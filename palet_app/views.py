@@ -11,10 +11,75 @@ from django.utils import timezone
 from .models import Urun, Palet, Optimization
 from .algorithms.single_palet_yerlestirme import single_palet_yerlestirme
 from .algorithms.mix_palet_yerlestirme import mix_palet_yerlestirme
-from .algorithms.visualize import palet_gorsellestir, ozet_grafikler_olustur
+from .algorithms.visualize import palet_gorsellestir_html, ozet_grafikler_html, renk_uret
 
 
-# JSON dosyasını işle
+def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
+    """
+    En iyi kromozomdan Django Palet nesneleri oluşturur.
+    
+    Args:
+        chromosome: En iyi GA kromozomu
+        palet_cfg: Palet konfigürasyonu
+        optimization: Django Optimization nesnesi
+        baslangic_id: Başlangıç palet ID'si
+        
+    Returns:
+        list: Oluşturulan Django Palet nesnelerinin listesi
+    """
+    from .algorithms.ga_utils import basit_palet_paketleme
+    from .models import Palet
+    
+    # Kromozomdan paletleri oluştur
+    pallets = basit_palet_paketleme(chromosome, palet_cfg)
+    
+    django_paletler = []
+    palet_id = baslangic_id
+    
+    for palet_data in pallets:
+        # Yeni Django Palet objesi oluştur
+        palet = Palet(
+            optimization=optimization,
+            palet_id=palet_id,
+            palet_tipi=None,
+            palet_turu='mix',
+            custom_en=palet_cfg.width,
+            custom_boy=palet_cfg.length,
+            custom_max_yukseklik=palet_cfg.height,
+            custom_max_agirlik=palet_cfg.max_weight
+        )
+        
+        # Yerleşim bilgilerini hazırla
+        urun_konumlari = {}
+        urun_boyutlari = {}
+        
+        for placement in palet_data['placements']:
+            urun = placement['urun']
+            urun_id = str(urun.id)
+            
+            urun_konumlari[urun_id] = [
+                placement['x'],
+                placement['y'],
+                placement['z']
+            ]
+            
+            urun_boyutlari[urun_id] = [
+                placement['L'],
+                placement['W'],
+                placement['H']
+            ]
+        
+        palet.urun_konumlari = urun_konumlari
+        palet.urun_boyutlari = urun_boyutlari
+        palet.save()
+        
+        django_paletler.append(palet)
+        palet_id += 1
+    
+    return django_paletler
+
+
+
 def upload_result(request):
     """AJAX ile yüklenen JSON dosyasını işler"""
     if request.method != 'POST' or 'file' not in request.FILES:
@@ -238,56 +303,77 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
         
         # Adım 3: Mix palet yerleştirme
         if algoritma == 'genetic':
-            from .algorithms.genetic_algorithm import genetik_algoritma_mix_palet, genetik_sonuc_uygula
+            from .algorithms.ga_core import run_ga
+            from .algorithms.ga_utils import PaletConfig, basit_palet_paketleme
             
-            optimization.islem_adimi_ekle("🧬 Genetik Algoritma ile mix paletler oluşturuluyor...")
-            optimization.islem_adimi_ekle("Bu işlem 1-2 dakika sürebilir...")
+            optimization.islem_adimi_ekle("🧬 Yeni Genetik Algoritma Motoru ile mix paletler oluşturuluyor...")
+            optimization.islem_adimi_ekle("Bu işlem ürün sayısına göre 1-3 dakika sürebilir...")
             
-            # Genetik algoritma ile en iyi sıralamayı bul
-            en_iyi_birey = genetik_algoritma_mix_palet(
-                yerlesmemis_urunler, 
-                container_info, 
-                optimization,
-                populasyon_boyutu=30,
-                nesil_sayisi=50,
-                mutasyon_orani=0.15,
-                max_sure=120  # 2 dakika
+            # Palet konfigürasyonu oluştur
+            palet_cfg = PaletConfig(
+                length=container_info['length'],
+                width=container_info['width'],
+                height=container_info['height'],
+                max_weight=container_info['weight']
             )
             
-            optimization.islem_adimi_ekle(f"En iyi çözüm bulundu! Fitness: {en_iyi_birey.fitness:.4f}")
+            # Ürün sayısına göre dinamik parametreler
+            urun_sayisi = len(yerlesmemis_urunler)
+            pop_size = min(30 + (urun_sayisi // 150), 100)
+            generations = min(50 + (urun_sayisi // 40), 300)
             
-            # En iyi sıralamayı uygula
-            mix_paletler = genetik_sonuc_uygula(en_iyi_birey, container_info, optimization, len(single_paletler) + 1)
-            optimization.islem_adimi_ekle(f"{len(mix_paletler)} adet mix palet oluşturuldu (Genetik).")
+            optimization.islem_adimi_ekle(f"Parametreler: Pop={pop_size}, Nesil={generations}, Ürün={urun_sayisi}")
+            
+            # GA motorunu çalıştır
+            best_chromosome, history = run_ga(
+                urunler=yerlesmemis_urunler,
+                palet_cfg=palet_cfg,
+                population_size=pop_size,
+                generations=generations,
+                mutation_rate=0.15,
+                tournament_k=3,
+                elitism=2
+            )
+            
+            if best_chromosome:
+                optimization.islem_adimi_ekle(
+                    f"En iyi çözüm: Fitness={best_chromosome.fitness:.2f}, "
+                    f"Palet={best_chromosome.palet_sayisi}, "
+                    f"Doluluk={best_chromosome.ortalama_doluluk:.2%}"
+                )
+                
+                # En iyi kromozomdan paletleri oluştur
+                mix_paletler = chromosome_to_palets(
+                    best_chromosome, 
+                    palet_cfg, 
+                    optimization, 
+                    len(single_paletler) + 1
+                )
+                optimization.islem_adimi_ekle(f"{len(mix_paletler)} adet mix palet oluşturuldu (Genetik).")
+            else:
+                optimization.islem_adimi_ekle("GA çözüm üretemedi, Greedy yönteme geçiliyor...")
+                mix_paletler = mix_palet_yerlestirme(yerlesmemis_urunler, container_info, optimization, len(single_paletler) + 1)
+                optimization.islem_adimi_ekle(f"{len(mix_paletler)} adet mix palet oluşturuldu (Greedy).")
         else:
             optimization.islem_adimi_ekle("Mix paletler oluşturuluyor (Greedy)...")
             mix_paletler = mix_palet_yerlestirme(yerlesmemis_urunler, container_info, optimization, len(single_paletler) + 1)
             optimization.islem_adimi_ekle(f"{len(mix_paletler)} adet mix palet oluşturuldu.")
         
-        # Adım 4: Görselleştirme
-        optimization.islem_adimi_ekle("Görselleştirme oluşturuluyor...")
+        # Adım 4: İstatistikleri güncelle (Görselleştirme artık on-the-fly yapılıyor)
+        optimization.islem_adimi_ekle("İstatistikler hesaplanıyor...")
         
         # Tüm paletleri birleştir
         tum_paletler = list(single_paletler) + list(mix_paletler)
         
-        # Her palet için görsel oluştur
-        for palet in tum_paletler:
-            # Bu palete yerleştirilmiş ürünleri bul
-            palet_urunleri = []
-            urun_konumlari = palet.json_to_dict(palet.urun_konumlari)
-            
-            for urun in urunler:
-                if str(urun.id) in urun_konumlari:
-                    palet_urunleri.append(urun)
-            
-            # Görselleştirme
-            gorsel = palet_gorsellestir(palet, palet_urunleri)
-            palet.gorsel.save(f"palet_{palet.palet_id}.png", gorsel)
-        
-        # Özet grafikler
-        pie_chart, bar_chart = ozet_grafikler_olustur(optimization)
-        optimization.pie_chart.save("pie_chart.png", pie_chart)
-        optimization.bar_chart.save("bar_chart.png", bar_chart)
+        # Palet istatistiklerini güncelle
+        from .models import Palet
+        paletler = Palet.objects.filter(optimization=optimization)
+        single = paletler.filter(palet_turu='single').count()
+        mix = paletler.filter(palet_turu='mix').count()
+        optimization.single_palet = single
+        optimization.mix_palet = mix
+        optimization.toplam_palet = single + mix
+        optimization.save()
         
         # Yerleştirilemeyen ürünleri kaydet
         son_yerlesmeyen_urunler = []
@@ -468,12 +554,17 @@ def analysis(request):
         # Paletleri al
         paletler = Palet.objects.filter(optimization=optimization).order_by('palet_id')
         
+        # Interaktif grafikleri on-the-fly oluştur
+        pie_chart_html, bar_chart_html = ozet_grafikler_html(optimization)
+        
         context = {
             'optimization': optimization,
             'paletler': paletler,
             'single_oran': optimization.single_palet / optimization.toplam_palet * 100 if optimization.toplam_palet > 0 else 0,
             'mix_oran': optimization.mix_palet / optimization.toplam_palet * 100 if optimization.toplam_palet > 0 else 0,
-            'yerlesmemis_urunler': optimization.yerlesmemis_urunler
+            'yerlesmemis_urunler': optimization.yerlesmemis_urunler,
+            'pie_chart_html': pie_chart_html,
+            'bar_chart_html': bar_chart_html
         }
         
         return render(request, 'palet_app/analysis.html', context)
@@ -510,21 +601,20 @@ def palet_detail(request, palet_id):
         next_id = palet_ids[current_index + 1] if current_index < len(palet_ids) - 1 else None
         
         # Bu palette hangi ürünlerin olduğunu bul
-        from .models import Urun
-        from .algorithms.visualize import renk_uret
-        import random
-        
         urun_konumlari = palet.json_to_dict(palet.urun_konumlari)
         urun_boyutlari = palet.json_to_dict(palet.urun_boyutlari)
         
         urun_ids = [int(id) for id in urun_konumlari.keys()]
-        urunler = Urun.objects.filter(id__in=urun_ids)
+        urunler = list(Urun.objects.filter(id__in=urun_ids))
+        
+        # Interaktif 3D görselleştirme HTML'i oluştur
+        palet_3d_html = palet_gorsellestir_html(palet, urunler)
         
         # Ürün kodlarına göre renk sözlüğü oluştur (görselleştirme ile aynı mantık)
         urun_renkleri = {}
         for urun in urunler:
             if urun.urun_kodu not in urun_renkleri:
-                urun_renkleri[urun.urun_kodu] = renk_uret(hash(urun.urun_kodu))
+                urun_renkleri[urun.urun_kodu] = renk_uret(urun.urun_kodu)
         
         # Ürün detaylarını hazırla
         urun_detaylari = []
@@ -555,7 +645,8 @@ def palet_detail(request, palet_id):
             'urun_detaylari': urun_detaylari,
             'prev_id': prev_id,
             'next_id': next_id,
-            'total_palets': len(palet_ids)
+            'total_palets': len(palet_ids),
+            'palet_3d_html': palet_3d_html
         }
         
         return render(request, 'palet_app/palet_detail.html', context)
@@ -568,4 +659,3 @@ def palet_detail(request, palet_id):
 # Ana sayfa
 def home_view(request):
     return render(request, 'palet_app/home.html')  # Ana sayfa şablonunu render et
-
