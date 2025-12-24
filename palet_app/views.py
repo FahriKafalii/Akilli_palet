@@ -76,6 +76,7 @@ def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
             
             # Toplam ağırlık ve hacim hesapla
             toplam_agirlik += urun.agirlik
+            # Yerleştirilen gerçek boyutları kullan (L x W x H)
             kullanilan_hacim += (item['L'] * item['W'] * item['H'])
         
         palet.urun_konumlari = urun_konumlari
@@ -373,10 +374,12 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
                 urun_data.mukavemet = urun.mukavemet
                 urun_data_listesi.append(urun_data)
             
-            # Ürün sayısına göre dinamik parametreler
+            # Ürün sayısına göre dinamik parametreler (Optimize edilmiş)
             urun_sayisi = len(urun_data_listesi)
-            pop_size = min(30 + (urun_sayisi // 150), 100)
-            generations = min(50 + (urun_sayisi // 40), 300)
+            
+            # Optimize edilmiş parametreler
+            pop_size = 100 if urun_sayisi > 500 else 80
+            generations = 200 if urun_sayisi > 500 else 150
             
             optimization.islem_adimi_ekle(f"Parametreler: Pop={pop_size}, Nesil={generations}, Ürün={urun_sayisi}")
             
@@ -386,9 +389,9 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
                 palet_cfg=palet_cfg,
                 population_size=pop_size,
                 generations=generations,
-                mutation_rate=0.15,
-                tournament_k=3,
-                elitism=2
+                mutation_rate=0.2,
+                tournament_k=4,
+                elitism=3
             )
             
             if best_chromosome:
@@ -453,6 +456,21 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
                 })
         
         optimization.yerlesmemis_urunler = son_yerlesmeyen_urunler
+        
+        # 🎨 Tüm paletler için görselleri oluştur
+        optimization.islem_adimi_ekle("Palet görselleri oluşturuluyor...")
+        for palet in tum_paletler:
+            if not palet.gorsel:  # Henüz görsel yoksa
+                try:
+                    urun_konumlari = palet.json_to_dict(palet.urun_konumlari)
+                    urun_ids = [int(id) for id in urun_konumlari.keys()]
+                    palet_urunleri = list(Urun.objects.filter(id__in=urun_ids))
+                    
+                    png_content = palet_gorsellestir(palet, palet_urunleri, save_to_file=True)
+                    palet.gorsel.save(f'palet_{palet.palet_id}.png', png_content, save=True)
+                    print(f"✅ Palet {palet.palet_id} görseli oluşturuldu")
+                except Exception as e:
+                    print(f"⚠️ Palet {palet.palet_id} görseli oluşturulamadı: {str(e)}")
         
         # Optimizasyonu tamamla
         optimization.islem_adimi_ekle("Optimizasyon tamamlandı.")
@@ -663,9 +681,6 @@ def palet_detail(request, palet_id):
         urun_ids = [int(id) for id in urun_konumlari.keys()]
         urunler = list(Urun.objects.filter(id__in=urun_ids))
         
-        # Interaktif 3D görselleştirme HTML'i oluştur
-        palet_3d_html = palet_gorsellestir(palet, urunler)
-        
         # Ürün kodlarına göre renk sözlüğü oluştur (görselleştirme ile aynı mantık)
         urun_renkleri = {}
         for urun in urunler:
@@ -702,13 +717,74 @@ def palet_detail(request, palet_id):
             'prev_id': prev_id,
             'next_id': next_id,
             'total_palets': len(palet_ids),
-            'palet_3d_html': palet_3d_html
         }
         
         return render(request, 'palet_app/palet_detail.html', context)
         
     except Exception as e:
         return HttpResponseBadRequest(f"Hata: {str(e)}")
+
+
+def palet_3d_data(request, palet_id):
+    """3D görselleştirme için palet verisini JSON formatında döndürür"""
+    optimization_id = request.session.get('optimization_id')
+    if not optimization_id:
+        return JsonResponse({'error': 'Optimizasyon bulunamadı'}, status=400)
+    
+    try:
+        optimization = get_object_or_404(Optimization, id=optimization_id)
+        palet = get_object_or_404(Palet, optimization=optimization, palet_id=palet_id)
+        
+        # Palet boyutları
+        palet_data = {
+            'palet_id': palet.palet_id,
+            'boy': palet.boy,
+            'en': palet.en,
+            'yukseklik': palet.max_yukseklik,
+            'doluluk': palet.doluluk_orani(),
+            'agirlik': float(palet.toplam_agirlik),
+            'items': []
+        }
+        
+        # Ürünleri al
+        urun_konumlari = palet.json_to_dict(palet.urun_konumlari)
+        urun_boyutlari = palet.json_to_dict(palet.urun_boyutlari)
+        urun_ids = [int(id) for id in urun_konumlari.keys()]
+        urunler = {urun.id: urun for urun in Urun.objects.filter(id__in=urun_ids)}
+        
+        # Her ürün için veri hazırla
+        for urun_id_str, konum in urun_konumlari.items():
+            urun_id = int(urun_id_str)
+            if urun_id not in urunler:
+                continue
+                
+            urun = urunler[urun_id]
+            boyut = urun_boyutlari.get(urun_id_str, [0, 0, 0])
+            
+            # Renk oluştur (RGB 0-1 aralığı)
+            renk_rgb = renk_uret(urun.urun_kodu)
+            
+            palet_data['items'].append({
+                'urun_kodu': urun.urun_kodu,
+                'urun_adi': urun.urun_adi,
+                'x': konum[0],
+                'y': konum[1],
+                'z': konum[2],
+                'boy': boyut[0],
+                'en': boyut[1],
+                'yukseklik': boyut[2],
+                'agirlik': float(urun.agirlik),
+                'renk': {
+                    'r': renk_rgb[0],
+                    'g': renk_rgb[1],
+                    'b': renk_rgb[2]
+                }
+            })
+        
+        return JsonResponse(palet_data)
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 

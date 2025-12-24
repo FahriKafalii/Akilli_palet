@@ -50,14 +50,23 @@ def kutu_ciz(ax, x, y, z, dx, dy, dz, color):
     poly = Poly3DCollection(faces, alpha=0.9, facecolor=color, edgecolor='black', linewidth=1.5)
     ax.add_collection3d(poly)
 
-def palet_gorsellestir(palet, urunler):
-    """Matplotlib ile 3D palet görselleştirme - PNG döndürür"""
+def palet_gorsellestir(palet, urunler, save_to_file=True):
+    """
+    Matplotlib ile 3D palet görselleştirme
+    
+    Args:
+        palet: Django Palet modeli
+        urunler: Ürün listesi
+        save_to_file: True ise PNG olarak kaydeder ve path döndürür
+        
+    Returns:
+        ContentFile (PNG) eğer save_to_file=True
+    """
     fig = plt.figure(figsize=(12, 9), dpi=100)
     ax = fig.add_subplot(111, projection='3d')
     
-    
     # Palet boyutları
-    PL, PW, PH = palet.en, palet.boy, palet.max_yukseklik
+    PL, PW, PH = palet.boy, palet.en, palet.max_yukseklik
     
     urun_konumlari = palet.json_to_dict(palet.urun_konumlari)
     urun_boyutlari = palet.json_to_dict(palet.urun_boyutlari)
@@ -116,7 +125,9 @@ def palet_gorsellestir(palet, urunler):
     buf.seek(0)
     plt.close(fig)
     
-    return ContentFile(buf.read())
+    if save_to_file:
+        return ContentFile(buf.read())
+    return buf
 
 def ozet_grafikler_olustur(optimization):
     """Özet grafikler oluşturur - PNG formatında"""

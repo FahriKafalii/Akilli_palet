@@ -4,7 +4,7 @@
         "length": 120,
         "width": 100,
         "height": 180,
-        "weight": 1250
+        "weight": 12500
     },
     "details": [
         {
@@ -48,7 +48,7 @@
             },
             "package_quantity": null,
             "package_id": "T4",
-            "quantity": 312,
+            "quantity": 1600,
             "unit_id": "KG"
         },
         {
@@ -70,7 +70,7 @@
             },
             "package_quantity": null,
             "package_id": "T4",
-            "quantity": 309,
+            "quantity": 1231,
             "unit_id": "KG"
         },
         {

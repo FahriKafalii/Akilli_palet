@@ -134,7 +134,9 @@ def solve_best_layer_configuration(palet_L, palet_W, item_L, item_W):
 def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
     """
     Tek bir palet simüle eder.
-    AĞIRLIK KRİTERİ KALDIRILDI -> SADECE HACİM %85
+    
+    BAŞARI KRİTERİ: Sadece %85+ Hacimsel Doluluk
+    (Diğer kısıtlar Fitness skorlarında kontrol edilir)
     """
     if not urun_listesi:
         return {"can_be_single": False, "pack_count": 0, "fill_ratio": 0}
@@ -151,38 +153,33 @@ def simulate_single_pallet(urun_listesi, palet_cfg: PaletConfig):
     # 2. Yükseklik Hesabı
     max_layers = int(PH // u0.yukseklik)
     
-    # 3. Toplam Kapasite
+    # 3. Teorik Kapasiteler
     capacity_by_vol = items_per_layer * max_layers
     
     if u0.agirlik > 0:
-        capacity_by_weight = int(max_w // u0.agirlik)
+        capacity_by_weight = int(max_w / u0.agirlik)
     else:
         capacity_by_weight = 999999
-        
-    # Paletin alabileceği maksimum ürün (Fiziksel Limit)
-    # Ağırlık limitini yine de hesaplıyoruz ki palet kırılmasın.
-    pallet_capacity = min(capacity_by_vol, capacity_by_weight)
     
+    # Teorik limit (%10 fazlası ile sınırla)
+    theoretical_limit = min(capacity_by_vol, capacity_by_weight)
+    
+    # Paletin alabileceği maksimum ürün
     current_stock = len(urun_listesi)
-    pack_count = min(current_stock, pallet_capacity)
+    pack_count = min(current_stock, theoretical_limit)
     
-    # BAŞARI KRİTERLERİ (GÜNCELLENDİ)
+    # Hacimsel doluluk hesabı
     total_vol_used = pack_count * urun_hacmi(u0)
     fill_ratio = total_vol_used / palet_cfg.volume
     
-    is_success = False
-    
-    # --- YENİ KURAL: Sadece Hacim %85+ ---
-    if fill_ratio >= 0.85:
-        is_success = True
-    else:
-        # Ağırlık dolsa bile, hacim dolmadıysa Single sayma, Mix'e at.
-        is_success = False
+    # ✅ TEK KRİTER: Hacimsel Doluluk %85+
+    is_success = (fill_ratio >= 0.85)
 
     return {
         "can_be_single": is_success,
         "pack_count": pack_count,
-        "fill_ratio": fill_ratio
+        "fill_ratio": fill_ratio,
+        "reason": f"Hacim: %{fill_ratio*100:.1f}" if is_success else f"Yetersiz Doluluk: %{fill_ratio*100:.1f}"
     }
 
 # -------------------------------------------------------------------

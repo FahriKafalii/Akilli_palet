@@ -67,7 +67,8 @@ def single_palet_yerlestirme_main(urunler, container_info, optimization=None):
             # Artan ürün sayısı
             remainder = total_qty % pack_count
             
-            print(f"  -> ONAYLANDI. 1 Palet Kapasitesi: {pack_count}")
+            print(f"  -> ONAYLANDI. Kriter: {sim_result['reason']}")
+            print(f"  -> 1 Palet Kapasitesi: {pack_count} adet")
             print(f"  -> Hızlı Çoğaltma: {num_full_pallets} adet eş palet oluşturuluyor.")
             
             # Paletleri Django modeli olarak oluştur
@@ -89,7 +90,9 @@ def single_palet_yerlestirme_main(urunler, container_info, optimization=None):
                     
                     # Toplam ağırlık ve hacim hesapla
                     toplam_agirlik += item.agirlik
-                    kullanilan_hacim += (item.boy * item.en * item.yukseklik)
+                    # Yerleştirilen gerçek boyutları kullan (L x W x H)
+                    L, W, H = urun_boyutlari[urun_id]
+                    kullanilan_hacim += (L * W * H)
                 
                 # Palet oluştur
                 palet = Palet(

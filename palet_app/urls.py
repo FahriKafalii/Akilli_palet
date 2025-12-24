@@ -10,6 +10,7 @@ urlpatterns = [
     path('isleniyor/', views.processing, name='processing'),
     path('analiz/', views.analysis, name='analysis'),
     path('palet-detay/<int:palet_id>/', views.palet_detail, name='palet_detail'),
+    path('palet-detay/<int:palet_id>/3d-data/', views.palet_3d_data, name='palet_3d_data'),
     # AJAX işlemleri için
     path('yukle-sonuc/', views.upload_result, name='upload_result'),
     path('yerlestirme-baslat/', views.start_placement, name='start_placement'),

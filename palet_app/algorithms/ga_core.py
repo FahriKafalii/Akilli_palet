@@ -5,8 +5,8 @@ import random
 from typing import List
 
 from .ga_chromosome import Chromosome
-from .ga_fitness import evaluate_fitness
-from .ga_utils import PaletConfig
+from .ga_fitness import evaluate_fitness, adapt_weights, get_weights
+from .ga_utils import PaletConfig, urun_hacmi
 
 
 def tournament_selection(population: List[Chromosome], k: int = 3) -> Chromosome:
@@ -75,14 +75,53 @@ def mutate(individual: Chromosome, mutation_rate: float = 0.05):
         individual.rot_gen[i] = 1 - individual.rot_gen[i]
 
 
-# --- DÜZELTME: tournament_k parametresi eklendi ---
-def run_ga(urunler, palet_cfg: PaletConfig, population_size=30, generations=50, elitism=2, mutation_rate=0.1, tournament_k=3):
+# --- ADAPTIVE GA: Otomatik Parametre Ayarlama ---
+def run_ga(urunler, palet_cfg: PaletConfig, population_size=None, generations=None, elitism=None, mutation_rate=0.2, tournament_k=3):
     """
-    Genetik Algoritma Ana Döngüsü
+    Genetik Algoritma Ana Döngüsü - ADAPTIVE WEIGHTS & PARAMETERS
+    
+    None parametreler ürün sayısına göre otomatik ayarlanır.
     """
     if not urunler:
         return None, []
 
+    n_urun = len(urunler)
+    
+    # 🔧 ADAPTIVE: Ürün sayısına göre parametreleri otomatik ayarla
+    if population_size is None:
+        if n_urun < 100:
+            population_size = 50
+        elif n_urun < 500:
+            population_size = 80
+        elif n_urun < 1500:
+            population_size = 100
+        else:
+            population_size = 120
+            
+    if generations is None:
+        if n_urun < 100:
+            generations = 30
+        elif n_urun < 500:
+            generations = 50
+        elif n_urun < 1500:
+            generations = 70
+        else:
+            generations = 100
+            
+    if elitism is None:
+        elitism = max(2, int(population_size * 0.05))  # %5 elitism
+    
+    print(f"🧬 GA ADAPTIVE Parametreler:")
+    print(f"   Ürün Sayısı: {n_urun}")
+    print(f"   Population: {population_size}")
+    print(f"   Generations: {generations}")
+    print(f"   Elitism: {elitism}")
+    print(f"   Mutation Rate: {mutation_rate}")
+
+    # Teorik minimum palet sayısını hesapla (adaptive weights için)
+    total_load_vol = sum(urun_hacmi(u) for u in urunler)
+    theo_min_pallets = max(1, int(total_load_vol / palet_cfg.volume) + 1)
+    
     # Başlangıç popülasyonu
     population: List[Chromosome] = [
         Chromosome(urunler=urunler) for _ in range(population_size)
@@ -99,6 +138,10 @@ def run_ga(urunler, palet_cfg: PaletConfig, population_size=30, generations=50, 
         population.sort(key=lambda c: c.fitness, reverse=True)
 
         current_best = population[0]
+        
+        # 🔧 ADAPTIVE: Her 5 generation'da bir ağırlıkları ayarla
+        if gen % 5 == 0 and gen > 0:
+            adapt_weights(current_best, theo_min_pallets)
         
         # Ortalama fitness (Takip için)
         avg_fitness = sum(c.fitness for c in population) / len(population)
