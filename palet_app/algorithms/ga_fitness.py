@@ -5,14 +5,18 @@ from .ga_utils import PaletConfig, pack_maximal_rectangles, urun_hacmi
 class AdaptiveWeights:
     """Performansa göre otomatik ayarlanan fitness ağırlıkları"""
     def __init__(self):
-        # Başlangıç değerleri (orta seviye)
-        self.w_pallet_count = 30000
+        # Başlangıç değerleri (düşük seviye - yavaş yavaş artacak)
+        self.w_pallet_count = 15000  # Düşürüldü: 30000 -> 15000
         self.w_optimal_bonus = 150000
-        self.w_volume = 40000
+        self.w_volume = 20000  # Düşürüldü: 40000 -> 20000
         self.w_weight_violation = 1000000  # Sabit (kırmızı çizgi)
         self.w_physical_violation = 10000000  # Sabit (kırmızı çizgi)
         self.w_cog_penalty = 0  # Devre dışı
         self.w_stacking_penalty = 100000  # Sabit
+        
+        # HARD CAPS (Prevents algorithm paralysis)
+        self.MAX_VOLUME = 40000
+        self.MAX_PALLET_COUNT = 50000
         
     def adapt(self, best_chromosome, theo_min_pallets):
         """Performansa göre ağırlıkları ayarla"""
@@ -24,19 +28,19 @@ class AdaptiveWeights:
         
         # KURAL 1: Palet sayısı teorik minimum'dan çok fazlaysa → pallet_count artır
         if palet_sayisi > theo_min_pallets + 2:
-            self.w_pallet_count = min(self.w_pallet_count * 1.2, 80000)
+            self.w_pallet_count = min(self.w_pallet_count * 1.1, self.MAX_PALLET_COUNT)  # HARD CAP: 50000
             print(f"  🔧 Palet sayısı yüksek → w_pallet_count artırıldı: {self.w_pallet_count:.0f}")
         elif palet_sayisi <= theo_min_pallets:
             # İyi durumda, hafifçe azalt (denge için)
-            self.w_pallet_count = max(self.w_pallet_count * 0.95, 20000)
+            self.w_pallet_count = max(self.w_pallet_count * 0.95, 10000)  # Alt limit düşürüldü
             
         # KURAL 2: Doluluk düşükse → volume weight artır
         if doluluk < 0.65:  # %65'in altında
-            self.w_volume = min(self.w_volume * 1.3, 100000)
+            self.w_volume = min(self.w_volume * 1.1, self.MAX_VOLUME)  # HARD CAP: 40000
             print(f"  🔧 Doluluk düşük (%{doluluk*100:.1f}) → w_volume artırıldı: {self.w_volume:.0f}")
         elif doluluk > 0.85:  # %85'in üstünde
             # İyi durumda, dengeyi koru
-            self.w_volume = max(self.w_volume * 0.98, 30000)
+            self.w_volume = max(self.w_volume * 0.98, 15000)  # Alt limit düşürüldü
             
         # KURAL 3: Optimal bonus'u dinamik ayarla
         if palet_sayisi == theo_min_pallets:
@@ -161,6 +165,9 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
     """
     Kromozomun başarısını ölçer - ADAPTİF AĞIRLIKLAR ile.
     
+    CRITICAL: Motor now uses AUTO-ORIENTATION (no rot_gen needed).
+    GA only optimizes the SEQUENCE (order) of items.
+    
     PROMPT'TAKİ ÖNCELİKLER:
     1. Palet sayısını minimize et (EN YÜKSEK ÖNCELİK)
     2. Doluluk oranını maksimize et
@@ -171,8 +178,8 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
     # Güncel ağırlıkları al
     weights = get_weights()
     
-    # 1. Yerleştirme Motorunu Çalıştır (✅ Maximal Rectangles)
-    pallets = pack_maximal_rectangles(chromosome.urunler, chromosome.rot_gen, palet_cfg)
+    # 1. Yerleştirme Motorunu Çalıştır (✅ Maximal Rectangles + Auto-Orientation)
+    pallets = pack_maximal_rectangles(chromosome.urunler, palet_cfg)
     
     if not pallets:
         chromosome.fitness = -1e9
@@ -203,7 +210,8 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
         p_vol = sum(i["L"] * i["W"] * i["H"] for i in pallet["items"])
         fill_ratio = p_vol / palet_cfg.volume
         total_fill_ratio += fill_ratio
-        fitness_score += weights["w_volume"] * (fill_ratio ** 2)
+        # QUARTIC REWARD: fill_ratio^4 makes GA EXTREMELY obsessed with dense pallets (>85%)
+        fitness_score += weights["w_volume"] * (fill_ratio ** 4)
     
     avg_doluluk = total_fill_ratio / P_GA if P_GA > 0 else 0.0
     

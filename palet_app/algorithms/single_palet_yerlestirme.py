@@ -63,34 +63,47 @@ def single_palet_yerlestirme_main(urunler, container_info, optimization=None):
             # REFACTORED: Use CAPACITY (not pack_count) for pallet count calculation
             capacity = sim_result["capacity"]  # Max items per pallet
             efficiency = sim_result["efficiency"]
-            pack_count = sim_result["pack_count"]  # Actual items to place
+            item_volume = group_items[0].boy * group_items[0].en * group_items[0].yukseklik
+            pallet_volume = palet_cfg.volume
             
             # Calculate how many pallets we can create
-            # REFACTORED: Allow PARTIAL pallets if efficiency is good
+            # STRICT 90% FILL RATIO ENFORCEMENT
             if total_qty >= capacity:
                 # Enough stock for full pallets
                 num_full_pallets = total_qty // capacity
                 remainder = total_qty % capacity
                 
-                # Create partial pallet if remainder exists and efficiency allows
-                create_partial = (remainder > 0 and remainder >= capacity * 0.3)  # At least 30% of capacity
+                # STRICT THRESHOLD: Calculate remainder's specific fill ratio
+                remainder_fill_ratio = (remainder * item_volume) / pallet_volume if remainder > 0 else 0
+                create_partial = (remainder_fill_ratio >= 0.90)  # STRICT 90% threshold
                 
                 print(f"  -> ✅ ONAYLANDI. {sim_result['reason']}")
                 print(f"  -> Efficiency: {efficiency*100:.1f}% | Capacity: {capacity} items/pallet")
                 print(f"  -> Stock: {total_qty} → {num_full_pallets} full pallet(s)")
                 
-                if create_partial:
-                    print(f"  -> + 1 partial pallet ({remainder} items, {remainder/capacity*100:.0f}% of capacity)")
+                if remainder > 0:
+                    if create_partial:
+                        print(f"  -> + 1 partial pallet ({remainder} items, fill ratio: {remainder_fill_ratio*100:.1f}% ≥ 90%)")
+                    else:
+                        print(f"  -> ⚠️  {remainder} remainder items (fill ratio: {remainder_fill_ratio*100:.1f}% < 90%) → Mix Pool")
                 
             else:
-                # Stock < capacity, but efficiency is good → CREATE PARTIAL PALLET
+                # Stock < capacity - check if partial pallet meets 90% threshold
                 num_full_pallets = 0
                 remainder = total_qty
-                create_partial = True
+                partial_fill_ratio = (remainder * item_volume) / pallet_volume
+                create_partial = (partial_fill_ratio >= 0.90)  # STRICT 90% threshold
                 
-                print(f"  -> ✅ ONAYLANDI (Partial Pallet). {sim_result['reason']}")
-                print(f"  -> Efficiency: {efficiency*100:.1f}% | Stock: {total_qty}/{capacity} items")
-                print(f"  -> Creating 1 partial pallet ({total_qty/capacity*100:.0f}% of capacity)")
+                if create_partial:
+                    print(f"  -> ✅ ONAYLANDI (Partial Pallet). {sim_result['reason']}")
+                    print(f"  -> Fill Ratio: {partial_fill_ratio*100:.1f}% ≥ 90% | Stock: {total_qty}/{capacity} items")
+                    print(f"  -> Creating 1 partial pallet")
+                else:
+                    print(f"  -> ⚠️  REJECTED (Partial < 90% threshold). Fill Ratio: {partial_fill_ratio*100:.1f}%")
+                    print(f"  -> All {total_qty} items → Mix Pool for GA optimization")
+                    # Send all items to mix pool - skip pallet creation
+                    mix_pool.extend(group_items)
+                    continue  # Skip to next group
             
             # Create full pallets
             for palet_no in range(num_full_pallets):
@@ -192,10 +205,10 @@ def single_palet_yerlestirme_main(urunler, container_info, optimization=None):
                 
                 # No items to mix pool (all used in partial pallet)
             elif remainder > 0:
-                # Remainder too small for partial pallet → send to mix
+                # Remainder below 90% threshold → send to mix for GA optimization
                 leftovers = group_items[-remainder:]
                 mix_pool.extend(leftovers)
-                print(f"  -> {remainder} items (<30% capacity) → Mix Pool")
+                print(f"  -> ⚠️  {remainder} items sent to Mix Pool (fill ratio < 90% threshold)")
                 
         else:
             # --- ❌ EFFICIENCY TOO LOW: SEND TO MIX ---

@@ -30,11 +30,11 @@ def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
     from .algorithms.ga_utils import pack_maximal_rectangles, UrunData
     from .models import Palet
     
-    # Kromozomdan ürün sırasını ve rotasyonları al
+    # Kromozomdan ürün sırasını al (Auto-Orientation: rot_gen artık kullanılmıyor)
     siralanmis_urunler = [chromosome.urunler[i] for i in chromosome.sira_gen]
     
-    # ✅ Maximal Rectangles kullanarak paletleri oluştur
-    pallets = pack_maximal_rectangles(siralanmis_urunler, chromosome.rot_gen, palet_cfg)
+    # ✅ Maximal Rectangles + Auto-Orientation kullanarak paletleri oluştur
+    pallets = pack_maximal_rectangles(siralanmis_urunler, palet_cfg)
     
     django_paletler = []
     palet_id = baslangic_id

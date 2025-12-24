@@ -23,9 +23,8 @@ def mix_palet_yerlestirme_main(mix_pool, palet_cfg: PaletConfig, start_id=1):
     )
     
     # 2. En İyi Çözümü Decode Et (Paletlere Çevir)
-    # ✅ MAXIMAL RECTANGLES kullanarak optimize yerleşim
-    from .ga_utils import pack_maximal_rectangles
-    final_pallets_data = pack_maximal_rectangles(best_solution.urunler, best_solution.rot_gen, palet_cfg)
+    # ✅ TRUE MAXIMAL RECTANGLES (Auto-Orientation) kullanarak optimize yerleşim
+    final_pallets_data = pack_maximal_rectangles(best_solution.urunler, palet_cfg)
     
     # 3. Sonuçları Formatla
     mix_pallets = []
