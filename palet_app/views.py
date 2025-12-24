@@ -27,14 +27,14 @@ def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
     Returns:
         list: Oluşturulan Django Palet nesnelerinin listesi
     """
-    from .algorithms.ga_utils import pack_shelf_based, UrunData
+    from .algorithms.ga_utils import pack_maximal_rectangles, UrunData
     from .models import Palet
     
     # Kromozomdan ürün sırasını ve rotasyonları al
     siralanmis_urunler = [chromosome.urunler[i] for i in chromosome.sira_gen]
     
-    # Pack shelf based kullanarak paletleri oluştur
-    pallets = pack_shelf_based(siralanmis_urunler, chromosome.rot_gen, palet_cfg)
+    # ✅ Maximal Rectangles kullanarak paletleri oluştur
+    pallets = pack_maximal_rectangles(siralanmis_urunler, chromosome.rot_gen, palet_cfg)
     
     django_paletler = []
     palet_id = baslangic_id

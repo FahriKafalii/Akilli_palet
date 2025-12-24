@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from .ga_utils import PaletConfig, pack_shelf_based, urun_hacmi
+from .ga_utils import PaletConfig, pack_maximal_rectangles, urun_hacmi
 
 # --- ADAPTİF AĞIRLIK SİSTEMİ (KENDİNİ OPTİMİZE EDER) ---
 class AdaptiveWeights:
@@ -108,15 +108,21 @@ def calculate_center_of_gravity(items):
     return cog_x, cog_y, cog_z
 
 def check_stacking_violations(items):
-    """İstifleme hatalarını kontrol eder (havada duran kutular)."""
+    """
+    İstifleme hatalarını kontrol eder (havada duran kutular).
+    
+    ✅ YENİ: Minimum destek alanı kontrolü eklendi (%70 threshold)
+    """
     violations = 0
     
     for i, item in enumerate(items):
         if item['z'] == 0:  # Zeminde ise sorun yok
             continue
         
-        # Bu kutu havada, altında destek var mı?
-        has_support = False
+        # Bu kutu havada, altında yeterli destek var mı?
+        item_area = item['L'] * item['W']
+        supported_area = 0.0
+        
         item_bottom = item['z']
         item_x1 = item['x']
         item_x2 = item['x'] + item['L']
@@ -131,19 +137,22 @@ def check_stacking_violations(items):
             
             # Diğer kutu bu kutunun altında mı?
             if abs(other_top - item_bottom) < 0.1:  # Z ekseni kontrolü
-                # X ve Y eksenlerinde kesişim var mı?
+                # X ve Y eksenlerinde kesişim alanını hesapla
                 other_x1 = other['x']
                 other_x2 = other['x'] + other['L']
                 other_y1 = other['y']
                 other_y2 = other['y'] + other['W']
                 
-                # Kesişim kontrolü
-                if not (item_x2 <= other_x1 or item_x1 >= other_x2 or
-                        item_y2 <= other_y1 or item_y1 >= other_y2):
-                    has_support = True
-                    break
+                # Kesişim alanı hesabı
+                overlap_x = max(0, min(item_x2, other_x2) - max(item_x1, other_x1))
+                overlap_y = max(0, min(item_y2, other_y2) - max(item_y1, other_y1))
+                overlap_area = overlap_x * overlap_y
+                
+                supported_area += overlap_area
         
-        if not has_support:
+        # ✅ Minimum %70 destek alanı gerekiyor
+        support_ratio = supported_area / item_area if item_area > 0 else 0
+        if support_ratio < 0.70:
             violations += 1
     
     return violations
@@ -162,8 +171,8 @@ def evaluate_fitness(chromosome, palet_cfg: PaletConfig) -> FitnessResult:
     # Güncel ağırlıkları al
     weights = get_weights()
     
-    # 1. Yerleştirme Motorunu Çalıştır
-    pallets = pack_shelf_based(chromosome.urunler, chromosome.rot_gen, palet_cfg)
+    # 1. Yerleştirme Motorunu Çalıştır (✅ Maximal Rectangles)
+    pallets = pack_maximal_rectangles(chromosome.urunler, chromosome.rot_gen, palet_cfg)
     
     if not pallets:
         chromosome.fitness = -1e9

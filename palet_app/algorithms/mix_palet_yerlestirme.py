@@ -1,5 +1,5 @@
 from .ga_core import run_ga
-from .ga_utils import PaletConfig
+from .ga_utils import PaletConfig, pack_maximal_rectangles
 
 def mix_palet_yerlestirme_main(mix_pool, palet_cfg: PaletConfig, start_id=1):
     """
@@ -23,9 +23,9 @@ def mix_palet_yerlestirme_main(mix_pool, palet_cfg: PaletConfig, start_id=1):
     )
     
     # 2. En İyi Çözümü Decode Et (Paletlere Çevir)
-    # ga_utils içindeki paketleyiciyi kullanarak fiziksel paletleri oluştur
-    from .ga_utils import pack_shelf_based
-    final_pallets_data = pack_shelf_based(best_solution.urunler, best_solution.rot_gen, palet_cfg)
+    # ✅ MAXIMAL RECTANGLES kullanarak optimize yerleşim
+    from .ga_utils import pack_maximal_rectangles
+    final_pallets_data = pack_maximal_rectangles(best_solution.urunler, best_solution.rot_gen, palet_cfg)
     
     # 3. Sonuçları Formatla
     mix_pallets = []

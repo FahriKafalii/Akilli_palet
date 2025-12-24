@@ -2,6 +2,7 @@ from .ga_utils import (
     parse_json_input,
     group_products_smart,
     simulate_single_pallet,
+    generate_grid_placement,
     PaletConfig,
     UrunData
 )
@@ -53,48 +54,76 @@ def single_palet_yerlestirme_main(urunler, container_info, optimization=None):
         
         print(f"Grup İnceleniyor: {urun_kodu}, Adet: {total_qty}")
         
-        # 3. Simülasyon (Sadece 1 Palet için)
+        # 3. Simülasyon - REFACTORED: Efficiency-based evaluation
         sim_result = simulate_single_pallet(group_items, palet_cfg)
         
         if sim_result["can_be_single"]:
-            # --- BAŞARILI: REPLICATION STRATEJİSİ ---
+            # --- ✅ EFFICIENCY APPROVED: CREATE SINGLE PALLETS ---
             
-            pack_count = sim_result["pack_count"] # Bir palete sığan adet
+            # REFACTORED: Use CAPACITY (not pack_count) for pallet count calculation
+            capacity = sim_result["capacity"]  # Max items per pallet
+            efficiency = sim_result["efficiency"]
+            pack_count = sim_result["pack_count"]  # Actual items to place
             
-            # Kaç tane tam dolu palet çıkar?
-            num_full_pallets = total_qty // pack_count
-            
-            # Artan ürün sayısı
-            remainder = total_qty % pack_count
-            
-            print(f"  -> ONAYLANDI. Kriter: {sim_result['reason']}")
-            print(f"  -> 1 Palet Kapasitesi: {pack_count} adet")
-            print(f"  -> Hızlı Çoğaltma: {num_full_pallets} adet eş palet oluşturuluyor.")
-            
-            # Paletleri Django modeli olarak oluştur
-            for palet_no in range(num_full_pallets):
-                # İlk pack_count kadar ürünü al
-                palet_items = group_items[palet_no * pack_count:(palet_no + 1) * pack_count]
+            # Calculate how many pallets we can create
+            # REFACTORED: Allow PARTIAL pallets if efficiency is good
+            if total_qty >= capacity:
+                # Enough stock for full pallets
+                num_full_pallets = total_qty // capacity
+                remainder = total_qty % capacity
                 
-                # Ürün konumları ve boyutlarını hazırla (basit yerleşim - grid)
+                # Create partial pallet if remainder exists and efficiency allows
+                create_partial = (remainder > 0 and remainder >= capacity * 0.3)  # At least 30% of capacity
+                
+                print(f"  -> ✅ ONAYLANDI. {sim_result['reason']}")
+                print(f"  -> Efficiency: {efficiency*100:.1f}% | Capacity: {capacity} items/pallet")
+                print(f"  -> Stock: {total_qty} → {num_full_pallets} full pallet(s)")
+                
+                if create_partial:
+                    print(f"  -> + 1 partial pallet ({remainder} items, {remainder/capacity*100:.0f}% of capacity)")
+                
+            else:
+                # Stock < capacity, but efficiency is good → CREATE PARTIAL PALLET
+                num_full_pallets = 0
+                remainder = total_qty
+                create_partial = True
+                
+                print(f"  -> ✅ ONAYLANDI (Partial Pallet). {sim_result['reason']}")
+                print(f"  -> Efficiency: {efficiency*100:.1f}% | Stock: {total_qty}/{capacity} items")
+                print(f"  -> Creating 1 partial pallet ({total_qty/capacity*100:.0f}% of capacity)")
+            
+            # Create full pallets
+            for palet_no in range(num_full_pallets):
+                palet_items = group_items[palet_no * capacity:(palet_no + 1) * capacity]
+                
+                # ✅ MIXED-ORIENTATION GRID PLACEMENT
+                placements = generate_grid_placement(palet_items, palet_cfg)
+                
+                # Prepare placement data
                 urun_konumlari = {}
                 urun_boyutlari = {}
                 toplam_agirlik = 0.0
                 kullanilan_hacim = 0.0
                 
-                for idx, item in enumerate(palet_items):
+                for placement in placements:
+                    item = placement['urun']
                     urun_id = str(item.id)
-                    # Basit grid yerleşimi (x, y, z konumları)
-                    urun_konumlari[urun_id] = [0, 0, idx * item.yukseklik]
-                    urun_boyutlari[urun_id] = [item.boy, item.en, item.yukseklik]
                     
-                    # Toplam ağırlık ve hacim hesapla
+                    urun_konumlari[urun_id] = [
+                        placement['x'],
+                        placement['y'],
+                        placement['z']
+                    ]
+                    urun_boyutlari[urun_id] = [
+                        placement['L'],
+                        placement['W'],
+                        placement['H']
+                    ]
+                    
                     toplam_agirlik += item.agirlik
-                    # Yerleştirilen gerçek boyutları kullan (L x W x H)
-                    L, W, H = urun_boyutlari[urun_id]
-                    kullanilan_hacim += (L * W * H)
+                    kullanilan_hacim += (placement['L'] * placement['W'] * placement['H'])
                 
-                # Palet oluştur
+                # Create Django Pallet object
                 palet = Palet(
                     optimization=optimization,
                     palet_id=total_palet_id,
@@ -113,15 +142,65 @@ def single_palet_yerlestirme_main(urunler, container_info, optimization=None):
                 single_pallets.append(palet)
                 total_palet_id += 1
             
-            # Artanları Mix'e at
-            if remainder > 0:
+            # Create partial pallet if allowed
+            if create_partial and remainder > 0:
+                palet_items = group_items[-remainder:]
+                
+                # ✅ MIXED-ORIENTATION GRID PLACEMENT
+                placements = generate_grid_placement(palet_items, palet_cfg)
+                
+                urun_konumlari = {}
+                urun_boyutlari = {}
+                toplam_agirlik = 0.0
+                kullanilan_hacim = 0.0
+                
+                for placement in placements:
+                    item = placement['urun']
+                    urun_id = str(item.id)
+                    
+                    urun_konumlari[urun_id] = [
+                        placement['x'],
+                        placement['y'],
+                        placement['z']
+                    ]
+                    urun_boyutlari[urun_id] = [
+                        placement['L'],
+                        placement['W'],
+                        placement['H']
+                    ]
+                    
+                    toplam_agirlik += item.agirlik
+                    kullanilan_hacim += (placement['L'] * placement['W'] * placement['H'])
+                
+                palet = Palet(
+                    optimization=optimization,
+                    palet_id=total_palet_id,
+                    palet_turu='single',  # Still tagged as 'single' (same product type)
+                    custom_en=palet_cfg.width,
+                    custom_boy=palet_cfg.length,
+                    custom_max_yukseklik=palet_cfg.height,
+                    custom_max_agirlik=palet_cfg.max_weight,
+                    toplam_agirlik=toplam_agirlik,
+                    kullanilan_hacim=kullanilan_hacim,
+                    urun_konumlari=urun_konumlari,
+                    urun_boyutlari=urun_boyutlari
+                )
+                palet.save()
+                
+                single_pallets.append(palet)
+                total_palet_id += 1
+                
+                # No items to mix pool (all used in partial pallet)
+            elif remainder > 0:
+                # Remainder too small for partial pallet → send to mix
                 leftovers = group_items[-remainder:]
                 mix_pool.extend(leftovers)
-                print(f"  -> Kalan {remainder} ürün Mix havuzuna devredildi.")
+                print(f"  -> {remainder} items (<30% capacity) → Mix Pool")
                 
         else:
-            # --- BAŞARISIZ: HEPSİNİ MIX'E AT ---
-            print(f"  -> REDDEDİLDİ. (Doluluk: %{sim_result['fill_ratio']*100:.1f}). Tamamı Mix'e gidiyor.")
+            # --- ❌ EFFICIENCY TOO LOW: SEND TO MIX ---
+            print(f"  -> ❌ REDDEDİLDİ. {sim_result['reason']}")
+            print(f"  -> Tamamı ({total_qty} items) Mix havuzuna gidiyor.")
             mix_pool.extend(group_items)
             
     print(f"--- Single Bitti. Toplam {len(single_pallets)} palet üretildi. Mix Havuzu: {len(mix_pool)} ürün. ---")
