@@ -9,9 +9,9 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from .models import Urun, Palet, Optimization
-from .algorithms.single_palet_yerlestirme import single_palet_yerlestirme
-from .algorithms.mix_palet_yerlestirme import mix_palet_yerlestirme
-from .algorithms.visualize import palet_gorsellestir_html, ozet_grafikler_html, renk_uret
+from .algorithms.single_palet_yerlestirme import single_palet_yerlestirme_main as single_palet_yerlestirme
+from .algorithms.mix_palet_yerlestirme import mix_palet_yerlestirme_main as mix_palet_yerlestirme
+from .algorithms.visualize import palet_gorsellestir, ozet_grafikler_olustur, renk_uret
 
 
 def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
@@ -19,7 +19,7 @@ def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
     En iyi kromozomdan Django Palet nesneleri oluşturur.
     
     Args:
-        chromosome: En iyi GA kromozomu
+        chromosome: En iyi GA kromozomu (Chromosome nesnesi)
         palet_cfg: Palet konfigürasyonu
         optimization: Django Optimization nesnesi
         baslangic_id: Başlangıç palet ID'si
@@ -27,16 +27,19 @@ def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
     Returns:
         list: Oluşturulan Django Palet nesnelerinin listesi
     """
-    from .algorithms.ga_utils import basit_palet_paketleme
+    from .algorithms.ga_utils import pack_shelf_based, UrunData
     from .models import Palet
     
-    # Kromozomdan paletleri oluştur
-    pallets = basit_palet_paketleme(chromosome, palet_cfg)
+    # Kromozomdan ürün sırasını ve rotasyonları al
+    siralanmis_urunler = [chromosome.urunler[i] for i in chromosome.sira_gen]
+    
+    # Pack shelf based kullanarak paletleri oluştur
+    pallets = pack_shelf_based(siralanmis_urunler, chromosome.rot_gen, palet_cfg)
     
     django_paletler = []
     palet_id = baslangic_id
     
-    for palet_data in pallets:
+    for pallet_data in pallets:
         # Yeni Django Palet objesi oluştur
         palet = Palet(
             optimization=optimization,
@@ -52,25 +55,33 @@ def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
         # Yerleşim bilgilerini hazırla
         urun_konumlari = {}
         urun_boyutlari = {}
+        toplam_agirlik = 0.0
+        kullanilan_hacim = 0.0
         
-        for placement in palet_data['placements']:
-            urun = placement['urun']
+        for item in pallet_data['items']:
+            urun = item['urun']
             urun_id = str(urun.id)
             
             urun_konumlari[urun_id] = [
-                placement['x'],
-                placement['y'],
-                placement['z']
+                item['x'],
+                item['y'],
+                item['z']
             ]
             
             urun_boyutlari[urun_id] = [
-                placement['L'],
-                placement['W'],
-                placement['H']
+                item['L'],
+                item['W'],
+                item['H']
             ]
+            
+            # Toplam ağırlık ve hacim hesapla
+            toplam_agirlik += urun.agirlik
+            kullanilan_hacim += (item['L'] * item['W'] * item['H'])
         
         palet.urun_konumlari = urun_konumlari
         palet.urun_boyutlari = urun_boyutlari
+        palet.toplam_agirlik = toplam_agirlik
+        palet.kullanilan_hacim = kullanilan_hacim
         palet.save()
         
         django_paletler.append(palet)
@@ -133,19 +144,20 @@ def upload_result(request):
             # Her bir detail kaydını işle
             for detail in detaylar:
                 product = detail.get('product', {})
-                package_quantity = detail.get('package_quantity', 1)
+                package_quantity = detail.get('package_quantity')
                 quantity = detail.get('quantity', 0)
+                unit_id = detail.get('unit_id', 'ADET')
                 
                 # Ürün kodunu al
                 code = product.get('code', product.get('id', 'UNKNOWN'))
                 
-                # Paket boyutlarını al (package_length, package_width, package_height)
+                # Paket boyutlarını al
                 package_length = to_float(product.get('package_length'))
                 package_width = to_float(product.get('package_width'))
                 package_height = to_float(product.get('package_height'))
                 package_weight = to_float(product.get('package_weight'))
                 
-                # Birim boyutlarını al (unit_length, unit_width, unit_height)
+                # Birim boyutlarını al
                 unit_length = to_float(product.get('unit_length'))
                 unit_width = to_float(product.get('unit_width'))
                 unit_height = to_float(product.get('unit_height'))
@@ -153,31 +165,58 @@ def upload_result(request):
                 
                 # Mukavemet bilgisi
                 mukavemet = to_float(product.get('package_max_stack_weight'), default=100000)
-                
-                # Eğer mukavemet null ise yüksek bir değer ata
                 if mukavemet == 0:
                     mukavemet = 100000
                 
-                # Her bir paket için ayrı bir kayıt oluştur
-                for i in range(package_quantity):
-                    urun_listesi_item = {
-                        'urun_kodu': str(code),
-                        'urun_adi': f"{code}",
-                        'boy': package_length,
-                        'en': package_width,
-                        'yukseklik': package_height,
-                        'agirlik': package_weight,
-                        'mukavemet': mukavemet,
-                        'donus_serbest': True,
-                        'istiflenebilir': True,
-                        'package_quantity': package_quantity,
-                        'quantity': to_float(quantity),
-                        'unit_length': unit_length,
-                        'unit_width': unit_width,
-                        'unit_height': unit_height,
-                        'unit_weight': unit_weight
-                    }
-                    urun_verileri.append(urun_listesi_item)
+                # package_quantity null ise: unit (ürün) bazında işle
+                if package_quantity is None or package_quantity <= 0:
+                    # KG cinsinden ise kaç adet ürün olduğunu hesapla
+                    if unit_id == 'KG' and unit_weight > 0:
+                        adet_urun = int(quantity / unit_weight)
+                    else:
+                        adet_urun = int(quantity)
+                    
+                    # Her bir ürün için ayrı kayıt oluştur
+                    for i in range(adet_urun):
+                        urun_listesi_item = {
+                            'urun_kodu': str(code),
+                            'urun_adi': f"{code}",
+                            'boy': unit_length,
+                            'en': unit_width,
+                            'yukseklik': unit_height,
+                            'agirlik': unit_weight,
+                            'mukavemet': mukavemet,
+                            'donus_serbest': True,
+                            'istiflenebilir': True,
+                            'package_quantity': None,
+                            'quantity': to_float(quantity),
+                            'unit_length': unit_length,
+                            'unit_width': unit_width,
+                            'unit_height': unit_height,
+                            'unit_weight': unit_weight
+                        }
+                        urun_verileri.append(urun_listesi_item)
+                else:
+                    # package_quantity var ise: paket bazında işle
+                    for i in range(package_quantity):
+                        urun_listesi_item = {
+                            'urun_kodu': str(code),
+                            'urun_adi': f"{code}",
+                            'boy': package_length,
+                            'en': package_width,
+                            'yukseklik': package_height,
+                            'agirlik': package_weight,
+                            'mukavemet': mukavemet,
+                            'donus_serbest': True,
+                            'istiflenebilir': True,
+                            'package_quantity': package_quantity,
+                            'quantity': to_float(quantity),
+                            'unit_length': unit_length,
+                            'unit_width': unit_width,
+                            'unit_height': unit_height,
+                            'unit_weight': unit_weight
+                        }
+                        urun_verileri.append(urun_listesi_item)
         
         # Eski format kontrolü (geriye dönük uyumluluk)
         elif isinstance(yuklenen_veri, list):
@@ -304,7 +343,7 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
         # Adım 3: Mix palet yerleştirme
         if algoritma == 'genetic':
             from .algorithms.ga_core import run_ga
-            from .algorithms.ga_utils import PaletConfig, basit_palet_paketleme
+            from .algorithms.ga_utils import PaletConfig, UrunData
             
             optimization.islem_adimi_ekle("🧬 Yeni Genetik Algoritma Motoru ile mix paletler oluşturuluyor...")
             optimization.islem_adimi_ekle("Bu işlem ürün sayısına göre 1-3 dakika sürebilir...")
@@ -317,8 +356,25 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
                 max_weight=container_info['weight']
             )
             
+            # Django modellerini UrunData'ya çevir
+            urun_data_listesi = []
+            for urun in yerlesmemis_urunler:
+                urun_data = UrunData(
+                    urun_id=urun.id,
+                    code=urun.urun_kodu,
+                    boy=urun.boy,
+                    en=urun.en,
+                    yukseklik=urun.yukseklik,
+                    agirlik=urun.agirlik,
+                    quantity=1,
+                    is_package=False
+                )
+                urun_data.donus_serbest = urun.donus_serbest
+                urun_data.mukavemet = urun.mukavemet
+                urun_data_listesi.append(urun_data)
+            
             # Ürün sayısına göre dinamik parametreler
-            urun_sayisi = len(yerlesmemis_urunler)
+            urun_sayisi = len(urun_data_listesi)
             pop_size = min(30 + (urun_sayisi // 150), 100)
             generations = min(50 + (urun_sayisi // 40), 300)
             
@@ -326,7 +382,7 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
             
             # GA motorunu çalıştır
             best_chromosome, history = run_ga(
-                urunler=yerlesmemis_urunler,
+                urunler=urun_data_listesi,
                 palet_cfg=palet_cfg,
                 population_size=pop_size,
                 generations=generations,
@@ -555,7 +611,7 @@ def analysis(request):
         paletler = Palet.objects.filter(optimization=optimization).order_by('palet_id')
         
         # Interaktif grafikleri on-the-fly oluştur
-        pie_chart_html, bar_chart_html = ozet_grafikler_html(optimization)
+        pie_chart_html, bar_chart_html = ozet_grafikler_olustur(optimization)
         
         context = {
             'optimization': optimization,
@@ -608,7 +664,7 @@ def palet_detail(request, palet_id):
         urunler = list(Urun.objects.filter(id__in=urun_ids))
         
         # Interaktif 3D görselleştirme HTML'i oluştur
-        palet_3d_html = palet_gorsellestir_html(palet, urunler)
+        palet_3d_html = palet_gorsellestir(palet, urunler)
         
         # Ürün kodlarına göre renk sözlüğü oluştur (görselleştirme ile aynı mantık)
         urun_renkleri = {}

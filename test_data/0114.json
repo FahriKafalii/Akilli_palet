@@ -46,7 +46,7 @@
                 "unit_weight": 1.003,
                 "units_per_layer": null
             },
-            "package_quantity": 20,
+            "package_quantity": null,
             "package_id": "T4",
             "quantity": 312,
             "unit_id": "KG"
@@ -68,7 +68,7 @@
                 "unit_weight": 1.040,
                 "units_per_layer": null
             },
-            "package_quantity": 18,
+            "package_quantity": null,
             "package_id": "T4",
             "quantity": 309,
             "unit_id": "KG"

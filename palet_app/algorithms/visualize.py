@@ -55,6 +55,7 @@ def palet_gorsellestir(palet, urunler):
     fig = plt.figure(figsize=(12, 9), dpi=100)
     ax = fig.add_subplot(111, projection='3d')
     
+    
     # Palet boyutları
     PL, PW, PH = palet.en, palet.boy, palet.max_yukseklik
     

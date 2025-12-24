@@ -1,108 +1,133 @@
-"""
-Single Palet Yerleştirme Algoritması
-Gelişmiş GA utils entegrasyonu ile optimize edilmiştir.
-"""
 from .ga_utils import (
-    PaletConfig,
+    parse_json_input,
+    group_products_smart,
     simulate_single_pallet,
-    group_by_product_code
+    PaletConfig,
+    UrunData
 )
+from ..models import Palet
 
-
-def single_palet_yerlestirme(urunler, container_info, optimization):
+def single_palet_yerlestirme_main(urunler, container_info, optimization=None):
     """
-    Aynı tür ürünleri single paletlere yerleştirir (Gelişmiş Versiyon).
-    
-    Args:
-        urunler: Yerleştirilecek ürün listesi
-        container_info: Container bilgileri (dict)
-        optimization: Optimizasyon objesi
-        
-    Returns:
-        tuple: (yerlestirilmis_paletler, yerlesmemis_urunler)
+    Single Palet Sürecini Yöneten Ana Fonksiyon.
+    Django modelleriyle çalışır.
     """
-    from ..models import Palet
+    print("--- Single Palet Operasyonu Başlıyor ---")
     
-    # Palet konfigürasyonu oluştur
+    # 1. Veriyi Hazırla
     palet_cfg = PaletConfig(
-        length=container_info.get('length', 120),
-        width=container_info.get('width', 100),
-        height=container_info.get('height', 180),
-        max_weight=container_info.get('weight', 1250)
+        length=container_info['length'],
+        width=container_info['width'],
+        height=container_info['height'],
+        max_weight=container_info['weight']
     )
     
-    # Ürünleri kodlarına göre grupla
-    gruplar = group_by_product_code(urunler)
+    # Django modellerini UrunData'ya çevir
+    all_products = []
+    for urun in urunler:
+        urun_data = UrunData(
+            urun_id=urun.id,
+            code=urun.urun_kodu,
+            boy=urun.boy,
+            en=urun.en,
+            yukseklik=urun.yukseklik,
+            agirlik=urun.agirlik,
+            quantity=1,
+            is_package=False
+        )
+        urun_data.donus_serbest = urun.donus_serbest
+        urun_data.mukavemet = urun.mukavemet
+        all_products.append(urun_data)
     
-    yerlestirilmis_paletler = []
-    yerlesmemis_urunler = []
-    palet_id = 1
-    max_palet_sayisi = 50
+    # 2. Grupla (Smart Grouping)
+    groups = group_products_smart(all_products)
     
-    for urun_kodu, grup_urunleri in gruplar.items():
-        print(f"\n{'='*60}")
-        print(f"Single palet oluşturuluyor: {urun_kodu}")
-        print(f"Toplam ürün: {len(grup_urunleri)}")
+    single_pallets = [] # Oluşan paletler (Objeler veya Dict)
+    mix_pool = []       # Mix'e kalacak ürünler
+    
+    total_palet_id = 1
+    
+    for key, group_items in groups.items():
+        urun_kodu = key[0] # Key: (Code, L, W, H, Wgt)
+        total_qty = len(group_items)
         
-        # AYNI ÜRÜNDEN BİRDEN FAZLA PALET OLUŞTURABİLİR
-        kalan_urunler = grup_urunleri.copy()
+        print(f"Grup İnceleniyor: {urun_kodu}, Adet: {total_qty}")
         
-        while len(kalan_urunler) > 0 and len(yerlestirilmis_paletler) < max_palet_sayisi:
-            # Gelişmiş single palet simülasyonu
-            sonuc = simulate_single_pallet(kalan_urunler, palet_cfg)
+        # 3. Simülasyon (Sadece 1 Palet için)
+        sim_result = simulate_single_pallet(group_items, palet_cfg)
+        
+        if sim_result["can_be_single"]:
+            # --- BAŞARILI: REPLICATION STRATEJİSİ ---
             
-            if sonuc["can_be_single"]:
-                # Django Palet objesi oluştur
+            pack_count = sim_result["pack_count"] # Bir palete sığan adet
+            
+            # Kaç tane tam dolu palet çıkar?
+            num_full_pallets = total_qty // pack_count
+            
+            # Artan ürün sayısı
+            remainder = total_qty % pack_count
+            
+            print(f"  -> ONAYLANDI. 1 Palet Kapasitesi: {pack_count}")
+            print(f"  -> Hızlı Çoğaltma: {num_full_pallets} adet eş palet oluşturuluyor.")
+            
+            # Paletleri Django modeli olarak oluştur
+            for palet_no in range(num_full_pallets):
+                # İlk pack_count kadar ürünü al
+                palet_items = group_items[palet_no * pack_count:(palet_no + 1) * pack_count]
+                
+                # Ürün konumları ve boyutlarını hazırla (basit yerleşim - grid)
+                urun_konumlari = {}
+                urun_boyutlari = {}
+                toplam_agirlik = 0.0
+                kullanilan_hacim = 0.0
+                
+                for idx, item in enumerate(palet_items):
+                    urun_id = str(item.id)
+                    # Basit grid yerleşimi (x, y, z konumları)
+                    urun_konumlari[urun_id] = [0, 0, idx * item.yukseklik]
+                    urun_boyutlari[urun_id] = [item.boy, item.en, item.yukseklik]
+                    
+                    # Toplam ağırlık ve hacim hesapla
+                    toplam_agirlik += item.agirlik
+                    kullanilan_hacim += (item.boy * item.en * item.yukseklik)
+                
+                # Palet oluştur
                 palet = Palet(
                     optimization=optimization,
-                    palet_id=palet_id,
-                    palet_tipi=None,
+                    palet_id=total_palet_id,
                     palet_turu='single',
                     custom_en=palet_cfg.width,
                     custom_boy=palet_cfg.length,
                     custom_max_yukseklik=palet_cfg.height,
-                    custom_max_agirlik=palet_cfg.max_weight
+                    custom_max_agirlik=palet_cfg.max_weight,
+                    toplam_agirlik=toplam_agirlik,
+                    kullanilan_hacim=kullanilan_hacim,
+                    urun_konumlari=urun_konumlari,
+                    urun_boyutlari=urun_boyutlari
                 )
-                
-                # Placements'tan konum ve boyut bilgilerini al
-                urun_konumlari = {}
-                urun_boyutlari = {}
-                
-                for placement in sonuc.get("placements", []):
-                    urun = placement["urun"]
-                    urun_id = str(urun.id)
-                    
-                    urun_konumlari[urun_id] = [
-                        placement["x"],
-                        placement["y"],
-                        placement["z"]
-                    ]
-                    
-                    urun_boyutlari[urun_id] = [
-                        placement["L"],
-                        placement["W"],
-                        placement["H"]
-                    ]
-                
-                palet.urun_konumlari = urun_konumlari
-                palet.urun_boyutlari = urun_boyutlari
                 palet.save()
                 
-                doluluk = sonuc["fill_ratio"] * 100
-                print(f"✓ Single palet {palet_id}: {len(sonuc['used'])} ürün, %{doluluk:.2f} doluluk - KABUL")
+                single_pallets.append(palet)
+                total_palet_id += 1
+            
+            # Artanları Mix'e at
+            if remainder > 0:
+                leftovers = group_items[-remainder:]
+                mix_pool.extend(leftovers)
+                print(f"  -> Kalan {remainder} ürün Mix havuzuna devredildi.")
                 
-                yerlestirilmis_paletler.append(palet)
-                palet_id += 1
-                
-                # Kalan ürünleri güncelle
-                kalan_urunler = sonuc["remaining"]
-                
-                if len(kalan_urunler) > 0:
-                    print(f"  → Kalan {len(kalan_urunler)} ürün için yeni palet deneniyor...")
-            else:
-                # Artık single olamaz, MIX'e gönder
-                print(f"✗ Single palet oluşturulamadı: {urun_kodu} ({len(kalan_urunler)} ürün) - MIX'e gönderiliyor")
-                yerlesmemis_urunler.extend(kalan_urunler)
-                break
-
-    return yerlestirilmis_paletler, yerlesmemis_urunler
+        else:
+            # --- BAŞARISIZ: HEPSİNİ MIX'E AT ---
+            print(f"  -> REDDEDİLDİ. (Doluluk: %{sim_result['fill_ratio']*100:.1f}). Tamamı Mix'e gidiyor.")
+            mix_pool.extend(group_items)
+            
+    print(f"--- Single Bitti. Toplam {len(single_pallets)} palet üretildi. Mix Havuzu: {len(mix_pool)} ürün. ---")
+    
+    # Mix pool'daki UrunData'ları Django Urun modellerine geri çevir
+    yerlesmemis_urunler = []
+    for item in mix_pool:
+        urun_obj = next((u for u in urunler if u.id == item.id), None)
+        if urun_obj:
+            yerlesmemis_urunler.append(urun_obj)
+    
+    return single_pallets, yerlesmemis_urunler
