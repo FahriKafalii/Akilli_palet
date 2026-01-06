@@ -130,52 +130,19 @@ def palet_gorsellestir(palet, urunler, save_to_file=True):
     return buf
 
 def ozet_grafikler_olustur(optimization):
-    """Özet grafikler oluşturur - PNG formatında"""
+    """Özet grafikler oluşturur - Interaktif HTML formatında (Plotly)"""
     from ..models import Palet
+    
+    try:
+        import plotly.graph_objects as go
+        import plotly.io as pio
+    except ImportError:
+        # Plotly yoksa boş döndür
+        return None, None
     
     paletler = Palet.objects.filter(optimization=optimization)
     single = paletler.filter(palet_turu='single').count()
     mix = paletler.filter(palet_turu='mix').count()
-    
-    # 1. Pasta grafik
-    fig1, ax1 = plt.subplots(figsize=(6, 4))
-    colors_pie = ['#3498db', '#e74c3c']
-    ax1.pie([single, mix], labels=['Single', 'Mix'], autopct='%1.1f%%',
-            colors=colors_pie, startangle=90)
-    ax1.set_title('Palet Tipi Dağılımı')
-    
-    buf1 = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf1, format='png', dpi=100)
-    buf1.seek(0)
-    plt.close(fig1)
-    
-    # 2. Bar grafik
-    fig2, ax2 = plt.subplots(figsize=(10, 4))
-    
-    ids = [f"P{p.palet_id}" for p in paletler]
-    doluluklar = [p.doluluk_orani() for p in paletler]
-    colors_bar = ['#3498db' if p.palet_turu == 'single' else '#e74c3c' for p in paletler]
-    
-    bars = ax2.bar(ids, doluluklar, color=colors_bar)
-    ax2.axhline(y=80, color='green', linestyle='--', linewidth=2, label='Hedef %80')
-    ax2.set_ylabel('Doluluk Oranı (%)')
-    ax2.set_title('Palet Doluluk Oranları')
-    ax2.set_ylim([0, 100])
-    ax2.legend()
-    
-    # Değerleri bar üstüne yaz
-    for bar, val in zip(bars, doluluklar):
-        height = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2., height,
-                f'{val:.1f}%', ha='center', va='bottom', fontsize=8)
-    
-    plt.xticks(rotation=45, ha='right')
-    buf2 = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf2, format='png', dpi=100)
-    buf2.seek(0)
-    plt.close(fig2)
     
     # İstatistikleri güncelle
     optimization.single_palet = single
@@ -183,4 +150,54 @@ def ozet_grafikler_olustur(optimization):
     optimization.toplam_palet = single + mix
     optimization.save()
     
-    return ContentFile(buf1.read()), ContentFile(buf2.read())
+    # 1. Pasta grafik
+    fig1 = go.Figure(data=[go.Pie(
+        labels=['Single', 'Mix'],
+        values=[single, mix],
+        hole=0.3,
+        marker=dict(colors=['#3498db', '#e74c3c']),
+        textinfo='label+percent',
+        textfont_size=14
+    )])
+    
+    fig1.update_layout(
+        title=dict(text='Palet Tipi Dağılımı', x=0.5, xanchor='center'),
+        height=350,
+        margin=dict(l=20, r=20, t=50, b=20)
+    )
+    
+    pie_chart_html = pio.to_html(fig1, full_html=False, include_plotlyjs='cdn')
+    
+    # 2. Bar grafik
+    ids = [f"P{p.palet_id}" for p in paletler]
+    doluluklar = [p.doluluk_orani() for p in paletler]
+    colors_bar = ['#3498db' if p.palet_turu == 'single' else '#e74c3c' for p in paletler]
+    
+    fig2 = go.Figure()
+    
+    fig2.add_trace(go.Bar(
+        x=ids,
+        y=doluluklar,
+        marker_color=colors_bar,
+        text=[f'{d:.1f}%' for d in doluluklar],
+        textposition='outside',
+        textfont_size=10,
+        name='Doluluk'
+    ))
+    
+    # Hedef çizgi ekle
+    fig2.add_hline(y=80, line_dash="dash", line_color="green", 
+                   annotation_text="Hedef %80", annotation_position="right")
+    
+    fig2.update_layout(
+        title=dict(text='Palet Doluluk Oranları', x=0.5, xanchor='center'),
+        yaxis_title='Doluluk Oranı (%)',
+        yaxis_range=[0, 105],
+        height=350,
+        margin=dict(l=20, r=20, t=50, b=20),
+        showlegend=False
+    )
+    
+    bar_chart_html = pio.to_html(fig2, full_html=False, include_plotlyjs='cdn')
+    
+    return pie_chart_html, bar_chart_html
