@@ -12,6 +12,7 @@ from .models import Urun, Palet, Optimization
 from .algorithms.single_palet_yerlestirme import single_palet_yerlestirme_main as single_palet_yerlestirme
 from .algorithms.mix_palet_yerlestirme import mix_palet_yerlestirme_main as mix_palet_yerlestirme
 from .algorithms.visualize import palet_gorsellestir, ozet_grafikler_olustur, renk_uret
+from .algorithms.ga_utils import PaletConfig, UrunData
 
 
 def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
@@ -90,6 +91,72 @@ def chromosome_to_palets(chromosome, palet_cfg, optimization, baslangic_id):
     
     return django_paletler
 
+
+def mix_palet_data_to_django(mix_palet_data, palet_cfg, optimization):
+    """
+    mix_palet_yerlestirme fonksiyonunun döndürdüğü dictionary listesini
+    Django Palet nesnelerine dönüştürür.
+    
+    Args:
+        mix_palet_data: mix_palet_yerlestirme'den dönen dictionary listesi
+        palet_cfg: Palet konfigürasyonu
+        optimization: Django Optimization nesnesi
+        
+    Returns:
+        list: Oluşturulan Django Palet nesnelerinin listesi
+    """
+    from .models import Palet
+    
+    django_paletler = []
+    
+    for pallet_dict in mix_palet_data:
+        # Yeni Django Palet objesi oluştur
+        palet = Palet(
+            optimization=optimization,
+            palet_id=pallet_dict['id'],
+            palet_tipi=None,
+            palet_turu='mix',
+            custom_en=palet_cfg.width,
+            custom_boy=palet_cfg.length,
+            custom_max_yukseklik=palet_cfg.height,
+            custom_max_agirlik=palet_cfg.max_weight
+        )
+        
+        # Yerleşim bilgilerini hazırla
+        urun_konumlari = {}
+        urun_boyutlari = {}
+        toplam_agirlik = 0.0
+        kullanilan_hacim = 0.0
+        
+        for item in pallet_dict.get('items', []):
+            urun = item['urun']
+            urun_id = str(urun.id)
+            
+            urun_konumlari[urun_id] = [
+                item['x'],
+                item['y'],
+                item['z']
+            ]
+            
+            urun_boyutlari[urun_id] = [
+                item['L'],
+                item['W'],
+                item['H']
+            ]
+            
+            # Toplam ağırlık ve hacim hesapla
+            toplam_agirlik += urun.agirlik
+            kullanilan_hacim += (item['L'] * item['W'] * item['H'])
+        
+        palet.urun_konumlari = urun_konumlari
+        palet.urun_boyutlari = urun_boyutlari
+        palet.toplam_agirlik = toplam_agirlik
+        palet.kullanilan_hacim = kullanilan_hacim
+        palet.save()
+        
+        django_paletler.append(palet)
+    
+    return django_paletler
 
 
 def upload_result(request):
@@ -340,39 +407,37 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
         optimization.islem_adimi_ekle("Single paletler oluşturuluyor...")
         single_paletler, yerlesmemis_urunler = single_palet_yerlestirme(urunler, container_info, optimization)
         
+        # Palet konfigürasyonu oluştur (hem genetic hem greedy için)
+        palet_cfg = PaletConfig(
+            length=container_info['length'],
+            width=container_info['width'],
+            height=container_info['height'],
+            max_weight=container_info['weight']
+        )
+        
+        # Django modellerini UrunData'ya çevir (hem genetic hem greedy için)
+        urun_data_listesi = []
+        for urun in yerlesmemis_urunler:
+            urun_data = UrunData(
+                urun_id=urun.id,
+                code=urun.urun_kodu,
+                boy=urun.boy,
+                en=urun.en,
+                yukseklik=urun.yukseklik,
+                agirlik=urun.agirlik,
+                quantity=1,
+                is_package=False
+            )
+            urun_data.donus_serbest = urun.donus_serbest
+            urun_data.mukavemet = urun.mukavemet
+            urun_data_listesi.append(urun_data)
         
         # Adım 3: Mix palet yerleştirme
         if algoritma == 'genetic':
             from .algorithms.ga_core import run_ga
-            from .algorithms.ga_utils import PaletConfig, UrunData
             
             optimization.islem_adimi_ekle("🧬 Yeni Genetik Algoritma Motoru ile mix paletler oluşturuluyor...")
             optimization.islem_adimi_ekle("Bu işlem ürün sayısına göre 1-3 dakika sürebilir...")
-            
-            # Palet konfigürasyonu oluştur
-            palet_cfg = PaletConfig(
-                length=container_info['length'],
-                width=container_info['width'],
-                height=container_info['height'],
-                max_weight=container_info['weight']
-            )
-            
-            # Django modellerini UrunData'ya çevir
-            urun_data_listesi = []
-            for urun in yerlesmemis_urunler:
-                urun_data = UrunData(
-                    urun_id=urun.id,
-                    code=urun.urun_kodu,
-                    boy=urun.boy,
-                    en=urun.en,
-                    yukseklik=urun.yukseklik,
-                    agirlik=urun.agirlik,
-                    quantity=1,
-                    is_package=False
-                )
-                urun_data.donus_serbest = urun.donus_serbest
-                urun_data.mukavemet = urun.mukavemet
-                urun_data_listesi.append(urun_data)
             
             # Ürün sayısına göre dinamik parametreler (Optimize edilmiş)
             urun_sayisi = len(urun_data_listesi)
@@ -411,11 +476,13 @@ def run_optimization(urun_verileri, container_info, optimization_id, algoritma='
                 optimization.islem_adimi_ekle(f"{len(mix_paletler)} adet mix palet oluşturuldu (Genetik).")
             else:
                 optimization.islem_adimi_ekle("GA çözüm üretemedi, Greedy yönteme geçiliyor...")
-                mix_paletler = mix_palet_yerlestirme(yerlesmemis_urunler, container_info, optimization, len(single_paletler) + 1)
+                mix_palet_data = mix_palet_yerlestirme(urun_data_listesi, palet_cfg, len(single_paletler) + 1)
+                mix_paletler = mix_palet_data_to_django(mix_palet_data, palet_cfg, optimization)
                 optimization.islem_adimi_ekle(f"{len(mix_paletler)} adet mix palet oluşturuldu (Greedy).")
         else:
             optimization.islem_adimi_ekle("Mix paletler oluşturuluyor (Greedy)...")
-            mix_paletler = mix_palet_yerlestirme(yerlesmemis_urunler, container_info, optimization, len(single_paletler) + 1)
+            mix_palet_data = mix_palet_yerlestirme(urun_data_listesi, palet_cfg, len(single_paletler) + 1)
+            mix_paletler = mix_palet_data_to_django(mix_palet_data, palet_cfg, optimization)
             optimization.islem_adimi_ekle(f"{len(mix_paletler)} adet mix palet oluşturuldu.")
         
         # Adım 4: İstatistikleri güncelle (Görselleştirme artık on-the-fly yapılıyor)
@@ -523,13 +590,13 @@ def start_placement(request):
     if not container_info:
         return JsonResponse({'success': False, 'error': 'Container bilgisi bulunamadı.'}, status=400)
     
-    # Algoritma seçimini al (POST'tan)
+    # Genetik Algoritma kullan (varsayılan)
     import json as json_module
     try:
         body = json_module.loads(request.body)
-        algoritma = body.get('algoritma', 'greedy')
+        algoritma = body.get('algoritma', 'genetic')
     except:
-        algoritma = 'greedy'
+        algoritma = 'genetic'
     
     # Container bilgilerini al
     container_length = container_info.get('length', 120)

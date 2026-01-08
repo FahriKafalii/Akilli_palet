@@ -120,41 +120,6 @@
         </div>
     </div>
 
-    <div class="mb-6 max-w-2xl mx-auto">
-        <div class="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 shadow-lg">
-            <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center">
-                <i class="fas fa-brain text-purple-600 mr-2"></i>
-                Optimizasyon Algoritması Seçin
-            </h3>
-            
-            <div class="space-y-3">
-                <label class="flex items-start p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-blue-500 transition-all">
-                    <input type="radio" name="algoritma" value="greedy" checked class="mt-1 mr-3 text-blue-600 focus:ring-blue-500">
-                    <div class="flex-1">
-                        <div class="flex items-center justify-between">
-                            <span class="font-semibold text-gray-800">⚡ Hızlı Optimizasyon (Greedy)</span>
-                            
-                        </div>
-                        <p class="text-sm text-gray-600 mt-1">Açgözlü algoritma ile hızlı sonuç alın.</p>
-                        <p class="text-xs text-gray-500 mt-1">✓ Hızlı işlem ✓ İyi sonuçlar</p>
-                    </div>
-                </label>
-                
-                <label class="flex items-start p-4 border-2 border-gray-200 rounded-lg cursor-pointer hover:border-purple-500 transition-all">
-                    <input type="radio" name="algoritma" value="genetic" class="mt-1 mr-3 text-purple-600 focus:ring-purple-500">
-                    <div class="flex-1">
-                        <div class="flex items-center justify-between">
-                            <span class="font-semibold text-gray-800">🧬 Genetik Algoritma (Demo)</span>
-                            
-                        </div>
-                        <p class="text-sm text-gray-600 mt-1">Evrimsel algoritma ile en iyi çözümü bulun.</p>
-                        <p class="text-xs text-gray-500 mt-1">✓ En iyi sonuçlar ✓ Daha az palet</p>
-                    </div>
-                </label>
-            </div>
-        </div>
-    </div>
-    
     <div class="flex justify-center space-x-4">
         <a href="{% url 'palet_app:home' %}" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-xl transition-colors">
             <i class="fas fa-arrow-left mr-2"></i> Geri Dön
@@ -176,17 +141,14 @@ $(document).ready(function() {
         if (isProcessing) return false;
         isProcessing = true;
         
-        const algoritma = $('input[name="algoritma"]:checked').val();
-        
         $.ajax({
             url: '{% url "palet_app:start_placement" %}',
             type: 'POST',
-            data: JSON.stringify({ algoritma: algoritma }),
+            data: JSON.stringify({ algoritma: 'genetic' }),
             contentType: 'application/json',
             headers: { 'X-CSRFToken': '{{ csrf_token }}' },
             beforeSend: function() {
-                const algoText = algoritma === 'genetic' ? '🧬 Genetik Algoritma' : '⚡ Greedy';
-                $('#startOptimizationBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-2"></i> ' + algoText + ' Başlatılıyor...');
+                $('#startOptimizationBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-2"></i> 🧬 Genetik Algoritma Başlatılıyor...');
             },
             success: function(response) {
                 if (response.success) {
